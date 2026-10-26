@@ -645,7 +645,8 @@
     "openalex": "https://api.openalex.org/works",
     "nber": {
       "prefix": "10.3386",
-      "feedURL": "https://www.nber.org/rss/new.xml"
+      "feedURL": "https://back.nber.org/rss/new.xml",
+      "feedNotes": "Canonical URL: www.nber.org/rss/new.xml redirects to this official NBER backend."
     },
     "cepr": {
       "feedURL": "https://cepr.org/rss/discussion-paper",

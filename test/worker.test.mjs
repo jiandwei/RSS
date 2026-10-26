@@ -39,7 +39,7 @@ function metadataFixture(url, revised) {
   const rss = items => new Response(`<rss xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>${items.map(item =>
     `<item><title>${xmlEscape(item.title)}</title><link>${item.url}</link><description><![CDATA[${item.abstract}]]></description>${item.date ? `<pubDate>${new Date(item.date).toUTCString()}</pubDate>` : ''}<dc:creator>A. Author</dc:creator></item>`).join('')}</channel></rss>`,
     { headers: { 'Content-Type': 'application/rss+xml' } });
-  if (url.hostname === 'www.nber.org') return rss([{ title: nber.title[0], url: 'https://www.nber.org/papers/w12345#fromrss', abstract: 'We analyze supply chains and trade credit.' }]);
+  if (url.hostname === 'back.nber.org') return rss([{ title: nber.title[0], url: 'https://www.nber.org/papers/w12345#fromrss', abstract: 'We analyze supply chains and trade credit.' }]);
   return rss(url.searchParams.has('page') ? [{ title: 'An Expired Discussion Paper', url: 'https://cepr.org/publications/dp1', abstract: 'Supply chain risks.', date: ancient }] : [
     { title: 'DP2 Global Networks and Financial Resilience', url: 'https://cepr.org/publications/dp2', abstract: 'Supply chain risk and finance.', date: recent },
     { title: 'Production Networks and Bank Lending', url: 'https://cepr.org/publications/dp3', abstract: 'Evidence about supply chains.', date: recent }
@@ -55,7 +55,7 @@ function read(mf, url, init = {}) {
 // downloads are deliberately not committed. Integration runs native workerd,
 // HTMLRewriter and SQLite Durable Objects, not a mocked HTML parser or database.
 function fixture(url, revised = false) {
-  if (['api.crossref.org', 'api.openalex.org', 'www.nber.org', 'cepr.org'].includes(url.hostname)) return metadataFixture(url, revised);
+  if (['api.crossref.org', 'api.openalex.org', 'back.nber.org', 'cepr.org'].includes(url.hostname)) return metadataFixture(url, revised);
   let content;
   if (url.hostname.includes('klenow')) return new Response('unavailable', { status: 503 });
   if (url.hostname.includes('harvard')) content = `<div class="csl-entry"><a href="/publications/trade">Research on Trade and Globalization</a></div>`;
@@ -148,7 +148,7 @@ test('successful scans without qualifying recent papers return one empty RSS and
     calls++; const url = new URL(request.url);
     if (url.hostname === 'api.crossref.org') return Response.json({ message: { items: [], 'total-results': 0 } });
     if (url.hostname === 'api.openalex.org') return Response.json({ results: [], meta: { count: 0 } });
-    if (['cepr.org', 'www.nber.org'].includes(url.hostname)) return new Response('<rss><channel></channel></rss>');
+    if (['cepr.org', 'back.nber.org'].includes(url.hostname)) return new Response('<rss><channel></channel></rss>');
     return fixture(url);
   });
   t.after(() => mf.dispose());

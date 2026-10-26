@@ -81,7 +81,7 @@ test('bounded collector paginates Crossref and CEPR, validates journal scope, en
           abstract_inverted_index: { Supply: [0], chain: [1], evidence: [2] } }], meta: { count: 1, next_cursor: null } };
       }
       assert.equal(format, 'xml');
-      if (url.hostname === 'www.nber.org') return rss([{ title: 'NBER title', url: 'https://www.nber.org/papers/w12345#fromrss', abstract: 'Supply-chain credit evidence.' }]);
+      if (url.hostname === 'back.nber.org') return rss([{ title: 'NBER title', url: 'https://www.nber.org/papers/w12345#fromrss', abstract: 'Supply-chain credit evidence.' }]);
       ceprPages++;
       return rss([{ title: `Discussion ${ceprPages}`, url: `https://cepr.org/publications/dp${ceprPages}`, abstract: 'Supply chain research.',
         date: ceprPages === 1 ? 'Mon, 26 Oct 2026 00:00:00 +0000' : 'Mon, 20 Jul 2026 00:00:00 +0000' }]);
