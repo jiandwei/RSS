@@ -81,11 +81,19 @@ export async function fetchPage(source, page, fetcher = fetch) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort('Source timeout'), 15000);
   try {
-    const response = await fetcher(page.url, {
-      signal: controller.signal, redirect: 'follow',
+    let url = page.url; let response;
+    for (let redirects = 0; redirects <= 2; redirects++) {
+      response = await fetcher(url, {
+      signal: controller.signal, redirect: 'manual',
       headers: { 'User-Agent': 'ScholarRSS/1.0 (public research pages; six-hour refresh)',
         Accept: 'text/html,application/xhtml+xml;q=0.9', 'Accept-Language': 'en' }
-    });
+      });
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      const next = safeURL(response.headers.get('Location'), url);
+      await response.body?.cancel();
+      if (!next || redirects === 2) throw new Error('Invalid/excessive source redirect');
+      url = next;
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     if (!/text\/html|application\/xhtml\+xml/i.test(response.headers.get('content-type') ?? '')) throw new Error('Expected HTML response');
     if (Number(response.headers.get('content-length')) > 3_000_000) throw new Error('Source exceeds 3 MB');

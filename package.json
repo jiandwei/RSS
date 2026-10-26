@@ -1,7 +1,12 @@
 {
-  "name": "scholar-rss", "version": "1.0.0", "private": true, "type": "module",
-  "description": "One Zotero-compatible RSS feed for six economists, powered by Cloudflare Workers",
-  "engines": {"node": ">=22"},
+  "name": "scholar-rss",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "One private RSS for six economists and recent supply-chain papers from UTD24, FT50, NBER and CEPR",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "build": "wrangler deploy --dry-run --outdir dist",
@@ -10,6 +15,12 @@
     "deploy": "wrangler deploy",
     "check:sources": "node scripts/check-sources.mjs"
   },
-  "dependencies": {"entities": "^6.0.1"},
-  "devDependencies": {"wrangler": "4.152.0", "miniflare": "4.20260730.0"}
+  "dependencies": {
+    "entities": "^6.0.1",
+    "fast-xml-parser": "^5.11.2"
+  },
+  "devDependencies": {
+    "miniflare": "4.20260730.0",
+    "wrangler": "4.152.0"
+  }
 }

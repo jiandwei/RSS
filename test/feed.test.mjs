@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import sources from '../sources.json' with { type: 'json' };
-import { cleanText, escapeXML, isPaperTitle, mergeItems, normalizeTitle, renderOPML, renderRSS, safeURL, validateSources } from '../src/feed.mjs';
+import config from '../sources.json' with { type: 'json' };
+const sources = config.researchers;
+const window = { from: '2026-08-26', to: '2026-10-26', timeZone: 'Asia/Shanghai' };
+import { cleanText, escapeXML, isPaperTitle, mergeItems, feedItems, normalizeTitle, renderOPML, renderRSS, safeURL, validateSources } from '../src/feed.mjs';
 
 const candidate = (overrides = {}) => ({ title: 'Trade, Management & Productivity', url: 'https://example.com/paper.pdf',
-  researcher: 'Nicholas Bloom', pageID: 'nicholas-bloom/research', pageURL: 'https://example.com/research', position: 0, ...overrides });
+  researcher: 'Nicholas Bloom', pageID: 'nicholas-bloom/research', pageURL: 'https://example.com/research', position: 0, kind: 'researcher', date: { value: '2026-10-20', precision: 'day', source: 'Publisher' }, authors: ['Nicholas Bloom'], ...overrides });
 
 test('configuration has exactly the requested six researchers in one file', () => {
-  validateSources(sources);
+  validateSources(config);
   assert.deepEqual(sources.map(source => source.name), ['Marc Melitz', 'David Autor', 'David Dorn', 'Nicholas Bloom', 'John Van Reenen', 'Peter Klenow']);
   assert.throws(() => validateSources([...sources, sources[0]]), /duplicate/);
 });
@@ -44,15 +46,15 @@ test('history retention keeps new papers, not only the initial batch', async () 
   assert.equal(result.items[0].title, 'Brand New Research on Productivity');
 });
 
-test('RSS emits stable GUIDs, escaped XML and explicitly labeled observation dates', async () => {
+test('RSS emits stable GUIDs, actual publication dates and metadata authors', async () => {
   const { items } = await mergeItems([], [candidate()], '2026-10-26T08:00:00.000Z');
-  const xml = renderRSS(items, { title: 'A & B', origin: 'https://rss.example', updatedAt: items[0].firstSeen });
+  const xml = renderRSS(feedItems(items, window), { window, title: 'A & B', origin: 'https://rss.example', updatedAt: items[0].firstSeen });
   assert.match(xml, /<title>A &amp; B<\/title>/);
   assert.match(xml, /Trade, Management &amp; Productivity/);
   assert.match(xml, /urn:scholar-rss:[a-f0-9]{64}/);
-  assert.match(xml, /<pubDate>Mon, 26 Oct 2026 08:00:00 GMT<\/pubDate>/);
-  assert.match(xml, /not the paper&apos;s publication date/);
-  assert.doesNotMatch(xml, /<dc:creator>/);
+  assert.match(xml, /<pubDate>Tue, 20 Oct 2026 00:00:00 GMT<\/pubDate>/);
+  assert.match(xml, /Publication date: 2026-10-20/);
+  assert.match(xml, /<dc:creator>Nicholas Bloom<\/dc:creator>/);
 });
 
 test('OPML imports a single combined feed, not six feeds', () => {
@@ -77,3 +79,27 @@ test('one-click deployment requests the mandatory reader key, not an optional ad
   assert.ok(!Object.hasOwn(config.vars, 'ACCESS_KEY'));
 });
 
+
+test('journal list is UTD24 plus current FT50 with correct overlap', () => {
+  assert.equal(config.discovery.journals.length, 51);
+  const group = name => config.discovery.journals.filter(j => j.groups.includes(name));
+  assert.equal(group('UTD24').length, 24); assert.equal(group('FT50').length, 50);
+  assert.ok(group('UTD24').some(j => j.name === 'Journal of International Business Studies'));
+  assert.ok(!group('UTD24').some(j => j.name === 'Journal of Management Information Systems'));
+  assert.ok(group('FT50').some(j => j.name === 'Psychological Science'));
+  assert.ok(!group('FT50').some(j => j.name === 'Journal of Business Ethics'));
+  assert.throws(() => validateSources({ ...config, discovery: { ...config.discovery, limits: { ...config.discovery.limits, requests: 1000 } } }), /limit/);
+});
+
+test('one DOI joins alternate titles, eligible versions determine categories, expired/legacy data stays hidden', async () => {
+  const a = candidate({ doi: '10.5555/paper', kind: 'literature', researcher: null, groups: ['UTD24', 'FT50'],
+    abstract: 'We study supply chain risks.', pageID: 'discovery/journals' });
+  const first = await mergeItems([], [a], '2026-10-26T00:00:00Z');
+  const both = await mergeItems(first.items, [candidate({ title: 'An Alternate Published Title', doi: a.doi })], '2026-10-26T01:00:00Z');
+  assert.equal(both.items.length, 1); assert.equal(both.items[0].id, first.items[0].id);
+  assert.deepEqual(new Set(feedItems(both.items, window)[0].categories), new Set(['UTD24', 'FT50', 'Nicholas Bloom']));
+  assert.equal(feedItems(both.items, { ...window, from: '2026-10-21' }).length, 0, 'expiry is checked when reading, without a new crawl');
+  assert.equal(feedItems([{ id: 'legacy', firstSeen: '2026-10-26', title: 'Old paper detected today' }], window).length, 0);
+  const titleOnly = await mergeItems([], [candidate({ kind: 'literature', title: 'Supply Chain Management and Finance', abstract: 'Banking evidence.', date: a.date })], '2026-10-26T00:00:00Z');
+  assert.equal(feedItems(titleOnly.items, window).length, 0);
+});

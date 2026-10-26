@@ -1,4 +1,6 @@
 import { decodeHTML } from 'entities';
+import { inWindow } from './window.mjs';
+import { supplyChainAbstract } from './topic.mjs';
 
 export function cleanText(value = '') {
   return decodeHTML(value)
@@ -23,6 +25,7 @@ export async function digest(text) {
 }
 
 export function safeURL(href, base) {
+  if (typeof href !== 'string' || !href.trim()) return null;
   try {
     const url = new URL(href, base);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
@@ -41,7 +44,8 @@ export function isPaperTitle(title) {
     !/^(?:skip to|back to|read more|view all|click here|terms of|privacy policy)/i.test(text);
 }
 
-export function validateSources(sources) {
+export function validateSources(config) {
+  const sources = Array.isArray(config) ? config : config.researchers;
   if (!Array.isArray(sources) || !sources.length) throw new Error('sources.json must be a nonempty array');
   const ids = new Set();
   let pageCount = 0;
@@ -60,64 +64,109 @@ export function validateSources(sources) {
     }
   }
   if (pageCount > 20) throw new Error('At most 20 configured pages per refresh');
+  if (!Array.isArray(config)) {
+    const discovery = config.discovery;
+    if (discovery?.months !== 2 || !discovery.timeZone || !Array.isArray(discovery.journals) || !discovery.journals.length) {
+      throw new Error('Discovery requires a two-month window and journal whitelist');
+    }
+    new Intl.DateTimeFormat('en', { timeZone: discovery.timeZone });
+    for (const journal of discovery.journals) {
+      if (!journal.name || !journal.issns?.length || journal.issns.some(i => !/^\d{4}-\d{3}[\dX]$/.test(i)) ||
+          !journal.groups?.length || journal.groups.some(g => !['UTD24', 'FT50'].includes(g))) throw new Error('Invalid journal whitelist');
+    }
+    for (const url of [discovery.crossref, discovery.openalex, discovery.nber.feedURL, discovery.cepr.feedURL]) {
+      if (!safeURL(url)?.startsWith('https://')) throw new Error('Discovery endpoints must use HTTPS');
+    }
+    for (const [key, max] of Object.entries({ requests: 45, crossrefJournalPages: 8, crossrefNBERPages: 2,
+      rows: 1000, openalexBatch: 100, authorLookups: 8, authorCandidatesPerPage: 20 })) {
+      if (!Number.isInteger(discovery.limits[key]) || discovery.limits[key] < 1 || discovery.limits[key] > max) throw new Error(`Invalid discovery limit: ${key}`);
+    }
+    if (!Number.isInteger(discovery.cepr.maxPages) || discovery.cepr.maxPages < 1 || discovery.cepr.maxPages > 12) throw new Error('Invalid CEPR page limit');
+  }
 }
 
-// Identify by normalized title, not PDF URL: coauthors often host different copies.
-// These are monitored researchers, not an assertion about the complete author list.
+// Preserve title-based GUIDs from the original feed; DOI also joins alternate title spellings.
 export async function mergeItems(previous, incoming, observedAt, maxHistory = 2000) {
   const byID = new Map(previous.map(item => [item.id, structuredClone(item)]));
+  const titles = new Map(); const dois = new Map();
+  const index = item => {
+    titles.set(normalizeTitle(item.title), item.id);
+    for (const record of item.records ?? []) {
+      titles.set(normalizeTitle(record.title), item.id);
+      if (record.doi) dois.set(record.doi, item.id);
+    }
+  };
+  for (const item of byID.values()) index(item);
   let changed = false;
   for (const candidate of incoming) {
-    const id = await digest(normalizeTitle(candidate.title));
+    const id = (candidate.doi && dois.get(candidate.doi)) || titles.get(normalizeTitle(candidate.title)) ||
+      await digest(normalizeTitle(candidate.title));
     const ref = { pageID: candidate.pageID, researcher: candidate.researcher, pageURL: candidate.pageURL };
-    const old = byID.get(id);
-    if (!old) {
-      byID.set(id, {
-        id, title: candidate.title, url: candidate.url,
-        firstSeen: observedAt, updatedAt: observedAt, position: candidate.position,
-        refs: [ref], urls: [candidate.url], excerpts: candidate.excerpt ? [candidate.excerpt] : []
-      });
-      changed = true;
-      continue;
+    let item = byID.get(id);
+    const snapshot = item ? JSON.stringify(item) : null;
+    if (!item) {
+      item = { id, title: candidate.title, url: candidate.url, firstSeen: observedAt, updatedAt: observedAt,
+        position: candidate.position ?? 0, refs: [], urls: [], excerpts: [], records: [] };
+      byID.set(id, item);
     }
-    const snapshot = JSON.stringify(old);
-    // Preserve a stable primary URL and pubDate. Revisit known pages to retain
-    // updated PDF addresses and researchers without creating duplicate entries.
-    const existing = old.refs.findIndex(r => r.pageID === ref.pageID);
-    if (existing >= 0) old.refs[existing] = ref;
-    else old.refs.push(ref);
-    if (!old.urls.includes(candidate.url)) old.urls.push(candidate.url);
-    if (candidate.excerpt && !old.excerpts.includes(candidate.excerpt)) old.excerpts = [...old.excerpts, candidate.excerpt].slice(-4);
-    old.position = Math.min(old.position, candidate.position);
-    if (JSON.stringify(old) !== snapshot) { old.updatedAt = observedAt; changed = true; }
+    const existing = item.refs.findIndex(r => r.pageID === ref.pageID);
+    if (existing >= 0) item.refs[existing] = ref; else item.refs.push(ref);
+    if (!item.urls.includes(candidate.url)) item.urls.push(candidate.url);
+    if (candidate.excerpt && !item.excerpts.includes(candidate.excerpt)) item.excerpts = [...item.excerpts, candidate.excerpt].slice(-4);
+    item.position = Math.min(item.position, candidate.position ?? 0);
+    item.records ??= [];
+    const record = { title: candidate.title, url: candidate.url, pageID: candidate.pageID, pageURL: candidate.pageURL,
+      kind: candidate.kind ?? 'researcher', researcher: candidate.researcher ?? null,
+      doi: candidate.doi ?? null, date: candidate.date ?? null, abstract: candidate.abstract ?? '',
+      abstractSource: candidate.abstractSource ?? null, authors: candidate.authors ?? [],
+      groups: candidate.groups ?? [], journal: candidate.journal ?? '' };
+    const key = r => `${r.pageID}:${r.doi ?? r.url}`;
+    const i = item.records.findIndex(r => key(r) === key(record));
+    if (i >= 0) item.records[i] = record; else item.records.push(record);
+    if (JSON.stringify(item) !== snapshot) { item.updatedAt = observedAt; changed = true; }
+    index(item);
   }
-  const items = [...byID.values()].sort((a, b) =>
-    b.firstSeen.localeCompare(a.firstSeen) || a.position - b.position || a.title.localeCompare(b.title));
+  const items = [...byID.values()].sort((a, b) => b.firstSeen.localeCompare(a.firstSeen) ||
+    a.position - b.position || a.title.localeCompare(b.title));
   if (items.length > maxHistory) changed = true;
   return { items: items.slice(0, maxHistory), changed };
 }
 
-export function renderRSS(items, { title, origin, updatedAt, limit = 200 }) {
+export function feedItems(items, window) {
+  return items.flatMap(item => {
+    // Legacy crawl-time-only entries cannot establish publication recency.
+    const records = (item.records ?? []).filter(r => inWindow(r.date, window) &&
+      (r.kind === 'researcher' || (r.kind === 'literature' && supplyChainAbstract(r.abstract))));
+    records.sort((a, b) => b.date.value.localeCompare(a.date.value) || Number(Boolean(b.abstract)) - Number(Boolean(a.abstract)));
+    if (!records.length) return [];
+    const primary = records[0];
+    return [{ ...item, ...primary, records, categories: [...new Set(records.flatMap(r =>
+      [...r.groups, ...(r.researcher ? [r.researcher] : [])]))] }];
+  }).sort((a, b) => b.date.value.localeCompare(a.date.value) || a.title.localeCompare(b.title));
+}
+
+export function renderRSS(items, { title, origin, updatedAt, window, limit = 200 }) {
   const esc = escapeXML;
   const entries = items.slice(0, limit).map(item => {
-    const researchers = [...new Set(item.refs.map(r => r.researcher))];
     const description = [
-      `Monitored researchers: ${researchers.join(', ')}. This is not the complete author list.`,
-      `First detected: ${item.firstSeen}. The RSS pubDate is detection time, not the paper's publication date.`,
-      ...item.excerpts,
-      ...item.refs.map(ref => `Source (${ref.researcher}): ${ref.pageURL}`),
-      ...item.urls.slice(1).map(url => `Other paper link: ${url}`)
-    ].join('\n\n');
+      `Publication date: ${item.date.precision === 'month' ? item.date.value.slice(0, 7) + ' (month precision; RSS uses day 1)' : item.date.value}. Source: ${item.date.source}.`,
+      item.journal ? `Journal: ${item.journal}.` : '',
+      item.doi ? `DOI: ${item.doi}.` : '',
+      item.abstract ? `Abstract (${item.abstractSource}): ${item.abstract}` : 'Abstract not available (monitored researcher paper).',
+      ...item.records.map(r => `Source (${r.researcher ?? r.groups.join(', ')}): ${r.pageURL}`),
+      ...[...new Set(item.records.map(r => r.url))].filter(url => url !== item.url).map(url => `Other paper link: ${url}`)
+    ].filter(Boolean).join('\n\n');
     return `<item><title>${esc(item.title)}</title><link>${esc(item.url)}</link>` +
       `<guid isPermaLink="false">urn:scholar-rss:${item.id}</guid>` +
-      `<pubDate>${new Date(item.firstSeen).toUTCString()}</pubDate>` +
+      `<pubDate>${new Date(item.date.value + 'T00:00:00Z').toUTCString()}</pubDate>` +
       `<description>${esc(description)}</description>` +
-      researchers.map(name => `<category>${esc(name)}</category>`).join('') + '</item>';
+      item.authors.map(name => `<dc:creator>${esc(name)}</dc:creator>`).join('') +
+      item.categories.map(name => `<category>${esc(name)}</category>`).join('') + '</item>';
   }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n` +
-    `<rss version="2.0"><channel>` +
+    `<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>` +
     `<title>${esc(title)}</title><link>${esc(origin)}/</link>` +
-    `<description>One combined feed of research links from six economists. Dates indicate first detection.</description>` +
+    `<description>Six economists and abstract-matched supply-chain papers from UTD24, FT50, NBER and CEPR. Publication window: ${esc(window.from)} through ${esc(window.to)} (${esc(window.timeZone)}). Missing dates excluded.</description>` +
     `<language>en</language><ttl>360</ttl>` +
     `<lastBuildDate>${new Date(updatedAt).toUTCString()}</lastBuildDate>\n${entries}\n</channel></rss>\n`;
 }

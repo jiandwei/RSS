@@ -1,96 +1,664 @@
-[
-  {
-    "id": "marc-melitz",
-    "name": "Marc Melitz",
-    "homepage": "https://melitz.scholars.harvard.edu/",
-    "pages": [
+{
+  "researchers": [
+    {
+      "id": "marc-melitz",
+      "name": "Marc Melitz",
+      "homepage": "https://melitz.scholars.harvard.edu/",
+      "pages": [
+        {
+          "id": "publications",
+          "url": "https://melitz.scholars.harvard.edu/publications",
+          "mode": "links",
+          "selector": ".csl-entry a[href*='/publications/']"
+        }
+      ]
+    },
+    {
+      "id": "david-autor",
+      "name": "David Autor",
+      "homepage": "https://economics.mit.edu/people/faculty/david-h-autor",
+      "pages": [
+        {
+          "id": "working-papers",
+          "url": "https://economics.mit.edu/people/faculty/david-h-autor/working-papers",
+          "mode": "links",
+          "selector": ".publication-teaser__title a[href]"
+        },
+        {
+          "id": "published-articles",
+          "url": "https://economics.mit.edu/people/faculty/david-h-autor/published-articles",
+          "mode": "links",
+          "selector": ".publication-teaser__title a[href]"
+        }
+      ]
+    },
+    {
+      "id": "david-dorn",
+      "name": "David Dorn",
+      "homepage": "https://www.ddorn.net/",
+      "pages": [
+        {
+          "id": "research",
+          "url": "https://www.ddorn.net/research.htm",
+          "mode": "links",
+          "selector": ".section a[href*='papers/']"
+        }
+      ]
+    },
+    {
+      "id": "nicholas-bloom",
+      "name": "Nicholas Bloom",
+      "homepage": "https://nbloom.people.stanford.edu/",
+      "pages": [
+        {
+          "id": "research",
+          "url": "https://nbloom.people.stanford.edu/research",
+          "mode": "links",
+          "selector": ".su-wysiwyg-text p a[href]",
+          "excludeTitlePattern": "^(?:Firm level uncertainty instruments|Industry Uncertainty Data|Survey Template|Simulation code|Management data|CM ReplicationData|Updated Data|Quarterly Data|Simulation replication)$"
+        }
+      ]
+    },
+    {
+      "id": "john-van-reenen",
+      "name": "John Van Reenen",
+      "homepage": "https://www.johnvanreenen.com/",
+      "pages": [
+        {
+          "id": "work-in-progress",
+          "url": "https://www.johnvanreenen.com/work-in-progress",
+          "mode": "quoted-paragraphs",
+          "selector": "div.wixui-rich-text p"
+        },
+        {
+          "id": "all-publications",
+          "url": "https://www.johnvanreenen.com/all-publications",
+          "mode": "quoted-paragraphs",
+          "selector": "div.wixui-rich-text p"
+        }
+      ]
+    },
+    {
+      "id": "peter-klenow",
+      "name": "Peter Klenow",
+      "homepage": "https://klenow.com/",
+      "notes": "2026-10-26: homepage returned HTTP 503 during validation. Keep retrying; do not substitute the Stanford directory listing, which includes other authors' teaching materials.",
+      "pages": [
+        {
+          "id": "research",
+          "url": "https://klenow.com/",
+          "mode": "links",
+          "selector": "body a[href]",
+          "includeUrlPattern": "\\.pdf(?:[?#]|$)|nber\\.org/papers/|doi\\.org/|papers\\.ssrn\\.com/"
+        }
+      ]
+    }
+  ],
+  "discovery": {
+    "months": 2,
+    "timeZone": "Asia/Shanghai",
+    "abstractTerms": [
+      "supply chain",
+      "supply-chain",
+      "供应链"
+    ],
+    "journalLists": {
+      "UTD24": "https://jsom.utdallas.edu/the-utd-top-100-business-school-research-rankings/list-of-journals",
+      "FT50": "https://www.ft.com/content/db863a0a-6524-45f9-bc52-fee997634bdc",
+      "FT50Version": "2026-04-29"
+    },
+    "journals": [
       {
-        "id": "publications",
-        "url": "https://melitz.scholars.harvard.edu/publications",
-        "mode": "links",
-        "selector": ".csl-entry a[href*='/publications/']"
-      }
-    ]
-  },
-  {
-    "id": "david-autor",
-    "name": "David Autor",
-    "homepage": "https://economics.mit.edu/people/faculty/david-h-autor",
-    "pages": [
-      {
-        "id": "working-papers",
-        "url": "https://economics.mit.edu/people/faculty/david-h-autor/working-papers",
-        "mode": "links",
-        "selector": ".publication-teaser__title a[href]"
+        "name": "Academy of Management Annals",
+        "issns": [
+          "1941-6520",
+          "1941-6067"
+        ],
+        "groups": [
+          "FT50"
+        ]
       },
       {
-        "id": "published-articles",
-        "url": "https://economics.mit.edu/people/faculty/david-h-autor/published-articles",
-        "mode": "links",
-        "selector": ".publication-teaser__title a[href]"
-      }
-    ]
-  },
-  {
-    "id": "david-dorn",
-    "name": "David Dorn",
-    "homepage": "https://www.ddorn.net/",
-    "pages": [
-      {
-        "id": "research",
-        "url": "https://www.ddorn.net/research.htm",
-        "mode": "links",
-        "selector": ".section a[href*='papers/']"
-      }
-    ]
-  },
-  {
-    "id": "nicholas-bloom",
-    "name": "Nicholas Bloom",
-    "homepage": "https://nbloom.people.stanford.edu/",
-    "pages": [
-      {
-        "id": "research",
-        "url": "https://nbloom.people.stanford.edu/research",
-        "mode": "links",
-        "selector": ".su-wysiwyg-text p a[href]",
-        "excludeTitlePattern": "^(?:Firm level uncertainty instruments|Industry Uncertainty Data|Survey Template|Simulation code|Management data|CM ReplicationData|Updated Data|Quarterly Data|Simulation replication)$"
-      }
-    ]
-  },
-  {
-    "id": "john-van-reenen",
-    "name": "John Van Reenen",
-    "homepage": "https://www.johnvanreenen.com/",
-    "pages": [
-      {
-        "id": "work-in-progress",
-        "url": "https://www.johnvanreenen.com/work-in-progress",
-        "mode": "quoted-paragraphs",
-        "selector": "div.wixui-rich-text p"
+        "name": "Academy of Management Journal",
+        "issns": [
+          "0001-4273"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
       },
       {
-        "id": "all-publications",
-        "url": "https://www.johnvanreenen.com/all-publications",
-        "mode": "quoted-paragraphs",
-        "selector": "div.wixui-rich-text p"
-      }
-    ]
-  },
-  {
-    "id": "peter-klenow",
-    "name": "Peter Klenow",
-    "homepage": "https://klenow.com/",
-    "notes": "2026-10-26: homepage returned HTTP 503 during validation. Keep retrying; do not substitute the Stanford directory listing, which includes other authors' teaching materials.",
-    "pages": [
+        "name": "Academy of Management Review",
+        "issns": [
+          "0363-7425",
+          "1930-3807"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
       {
-        "id": "research",
-        "url": "https://klenow.com/",
-        "mode": "links",
-        "selector": "body a[href]",
-        "includeUrlPattern": "\\.pdf(?:[?#]|$)|nber\\.org/papers/|doi\\.org/|papers\\.ssrn\\.com/"
+        "name": "The Accounting Review",
+        "issns": [
+          "0001-4826",
+          "1558-7967"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Accounting, Organizations and Society",
+        "issns": [
+          "0361-3682"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Administrative Science Quarterly",
+        "issns": [
+          "0001-8392",
+          "1930-3815"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "American Economic Review",
+        "issns": [
+          "0002-8282",
+          "1944-7981"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "American Sociological Review",
+        "issns": [
+          "0003-1224",
+          "1939-8271"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Contemporary Accounting Research",
+        "issns": [
+          "0823-9150",
+          "1911-3846"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Econometrica",
+        "issns": [
+          "0012-9682",
+          "1468-0262"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Entrepreneurship Theory and Practice",
+        "issns": [
+          "1042-2587",
+          "1540-8520",
+          "1540-6520"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Harvard Business Review",
+        "issns": [
+          "0017-8012"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Human Resource Management",
+        "issns": [
+          "0090-4848",
+          "1099-050X"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Information Systems Research",
+        "issns": [
+          "1047-7047",
+          "1526-5536"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Accounting and Economics",
+        "issns": [
+          "0165-4101"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Accounting Research",
+        "issns": [
+          "0021-8456",
+          "1475-679X"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Applied Psychology",
+        "issns": [
+          "0021-9010",
+          "1939-1854"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Business Venturing",
+        "issns": [
+          "0883-9026"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Consumer Psychology",
+        "issns": [
+          "1057-7408",
+          "1532-7663"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Consumer Research",
+        "issns": [
+          "0093-5301",
+          "1537-5277"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Finance",
+        "issns": [
+          "0022-1082",
+          "1540-6261"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Financial and Quantitative Analysis",
+        "issns": [
+          "0022-1090",
+          "1756-6916"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Financial Economics",
+        "issns": [
+          "0304-405X"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of International Business Studies",
+        "issns": [
+          "0047-2506",
+          "1478-6990",
+          "0047-8210"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Management",
+        "issns": [
+          "0149-2063",
+          "1557-1211"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Management Information Systems",
+        "issns": [
+          "0742-1222",
+          "1557-928X"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Management Studies",
+        "issns": [
+          "0022-2380",
+          "1467-6486"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Marketing",
+        "issns": [
+          "0022-2429",
+          "1547-7185"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Marketing Research",
+        "issns": [
+          "0022-2437",
+          "1547-7193"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Operations Management",
+        "issns": [
+          "0272-6963",
+          "1873-1317"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of Political Economy",
+        "issns": [
+          "0022-3808",
+          "1537-534X"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Journal of the Academy of Marketing Science",
+        "issns": [
+          "0092-0703",
+          "1552-7824"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Management Science",
+        "issns": [
+          "0025-1909",
+          "1526-5501"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Manufacturing & Service Operations Management",
+        "issns": [
+          "1523-4614",
+          "1526-5498",
+          "1526-5489"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Marketing Science",
+        "issns": [
+          "0732-2399",
+          "1526-548X"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "MIS Quarterly",
+        "issns": [
+          "0276-7783",
+          "2162-9730"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "MIT Sloan Management Review",
+        "issns": [
+          "1532-9194",
+          "1532-8937"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Operations Research",
+        "issns": [
+          "0030-364X",
+          "1526-5463"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Organization Science",
+        "issns": [
+          "1047-7039",
+          "1526-5455"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Organizational Behavior and Human Decision Processes",
+        "issns": [
+          "0749-5978",
+          "1095-9920"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Production and Operations Management",
+        "issns": [
+          "1059-1478",
+          "1937-5956"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Psychological Science",
+        "issns": [
+          "0956-7976",
+          "1467-9280"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Quarterly Journal of Economics",
+        "issns": [
+          "0033-5533",
+          "1531-4650"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Research Policy",
+        "issns": [
+          "0048-7333"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Review of Accounting Studies",
+        "issns": [
+          "1380-6653",
+          "1573-7136"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Review of Economic Studies",
+        "issns": [
+          "0034-6527",
+          "1467-937X"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Review of Finance",
+        "issns": [
+          "1572-3097",
+          "1573-692X",
+          "1875-824X"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Review of Financial Studies",
+        "issns": [
+          "0893-9454",
+          "1465-7368"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "Strategic Entrepreneurship Journal",
+        "issns": [
+          "1932-443X",
+          "1932-4391"
+        ],
+        "groups": [
+          "FT50"
+        ]
+      },
+      {
+        "name": "Strategic Management Journal",
+        "issns": [
+          "0143-2095",
+          "1097-0266"
+        ],
+        "groups": [
+          "UTD24",
+          "FT50"
+        ]
+      },
+      {
+        "name": "INFORMS Journal on Computing",
+        "issns": [
+          "1091-9856",
+          "0899-1499",
+          "1526-5528",
+          "2326-3245"
+        ],
+        "groups": [
+          "UTD24"
+        ]
       }
-    ]
+    ],
+    "crossref": "https://api.crossref.org",
+    "openalex": "https://api.openalex.org/works",
+    "nber": {
+      "prefix": "10.3386",
+      "feedURL": "https://www.nber.org/rss/new.xml"
+    },
+    "cepr": {
+      "feedURL": "https://cepr.org/rss/discussion-paper",
+      "maxPages": 12
+    },
+    "limits": {
+      "requests": 45,
+      "crossrefJournalPages": 8,
+      "crossrefNBERPages": 2,
+      "rows": 500,
+      "openalexBatch": 50,
+      "authorLookups": 8,
+      "authorCandidatesPerPage": 4
+    }
   }
-]
-
+}

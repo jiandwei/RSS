@@ -1,11 +1,16 @@
-import sources from '../sources.json';
-import { digest, escapeXML, mergeItems, renderOPML, renderRSS, validateSources } from './feed.mjs';
+import config from '../sources.json';
+import { dateWindow } from './window.mjs';
+import { collectLiterature, dateResearcherPapers, metadataClient } from './discovery.mjs';
+import { digest, escapeXML, mergeItems, feedItems, renderOPML, renderRSS, validateSources } from './feed.mjs';
 import { fetchPage } from './extract.mjs';
 import { authorizeRead, hasAccessKey, matchesSecret, privateResponse, privateURL } from './auth.mjs';
 
-validateSources(sources);
+validateSources(config);
+const sources = config.researchers;
+const discovery = config.discovery;
+const currentWindow = () => dateWindow(new Date(), discovery.months, discovery.timeZone);
 const pages = sources.flatMap(source => source.pages.map(page => ({ source, page })));
-const titleOf = env => env.FEED_TITLE || 'Economists — Research Updates';
+const titleOf = env => env.FEED_TITLE || 'Economists & Supply Chain — Recent Research';
 const boundedInt = (value, fallback, max) => Math.max(1, Math.min(max, Number.parseInt(value, 10) || fallback));
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 
@@ -46,7 +51,7 @@ async function handleRequest(request, env) {
       }
     }
     if (url.pathname === '/sources.json') {
-      const response = json(sources);
+      const response = json(config);
       return request.method === 'HEAD' ? new Response(null, response) : response;
     }
     if (url.pathname === '/feed.opml') {
@@ -69,6 +74,7 @@ export class FeedStore {
     this.sql.exec('CREATE TABLE IF NOT EXISTS items (id TEXT PRIMARY KEY, first_seen TEXT NOT NULL, data TEXT NOT NULL)');
     this.sql.exec('CREATE TABLE IF NOT EXISTS page_status (id TEXT PRIMARY KEY, data TEXT NOT NULL)');
     this.sql.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    this.sql.exec('CREATE TABLE IF NOT EXISTS metadata_cache (key TEXT PRIMARY KEY, data TEXT NOT NULL, expires_at INTEGER NOT NULL)');
   }
   getMeta(key) { return this.sql.exec('SELECT value FROM meta WHERE key = ?', key).toArray()[0]?.value ?? null; }
   setMeta(key, value) { this.sql.exec('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', key, value); }
@@ -80,15 +86,38 @@ export class FeedStore {
     const known = new Map(this.sql.exec('SELECT id, data FROM page_status').toArray().map(row => [row.id, JSON.parse(row.data)]));
     const status = pages.map(({ source, page }) => ({ id: `${source.id}/${page.id}`, researcher: source.name,
       url: page.url, ...known.get(`${source.id}/${page.id}`) }));
+    const providers = JSON.parse(this.getMeta('providers') ?? '[]');
+    const researchers = JSON.parse(this.getMeta('researcherDates') ?? '{}');
+    const metadataErrors = JSON.parse(this.getMeta('metadataErrors') ?? '[]');
+    const all = this.getItems();
+    const window = currentWindow(); const count = feedItems(all, window).length;
+    const limit = boundedInt(this.env.MAX_FEED_ITEMS, 1000, 1000);
     return {
-      feed: '/feed.xml', researcherCount: sources.length, pageCount: pages.length,
-      itemCount: this.sql.exec('SELECT COUNT(*) AS n FROM items').toArray()[0].n,
+      feed: '/feed.xml', window, researcherCount: sources.length, pageCount: pages.length,
+      journalCount: discovery.journals.length,
+      itemCount: Math.min(count, limit), eligibleItemCount: count, feedTruncated: count > limit,
+      storedItemCount: all.length, maxRequestsPerRefresh: discovery.limits.requests,
+      lastRequestCount: Number(this.getMeta('requestCount') ?? 0),
       lastAttempt: this.getMeta('lastAttempt'), lastSuccess: this.getMeta('lastSuccess'),
       contentUpdatedAt: this.getMeta('contentUpdatedAt'),
-      health: !status.some(page => page.checkedAt) ? 'not-initialized' : status.some(page => page.error) ? 'degraded' : 'healthy',
-      pages: status
+      health: this.getMeta('schema') !== '2' ? 'not-initialized' :
+        status.some(p => p.error) || providers.some(p => p.error || p.abstractFeedError || !p.complete || p.missingAbstract || p.missingDate) ||
+        metadataErrors.length || researchers.errors?.length || researchers.pending || researchers.missingDate ? 'degraded' : 'healthy',
+      pages: status, providers, researcherDates: researchers, metadataErrors,
+      coverageNote: 'Public metadata only; missing abstracts/dates and indexing delays can omit papers. Zero journal metadata is not proof of no new papers.'
     };
   }
+  metadataCache() {
+    return {
+      get: (key, now) => {
+        const row = this.sql.exec('SELECT data FROM metadata_cache WHERE key = ? AND expires_at > ?', key, now).toArray()[0];
+        return row ? JSON.parse(row.data) : undefined;
+      },
+      set: (key, value, expiresAt) => this.sql.exec('INSERT OR REPLACE INTO metadata_cache (key, data, expires_at) VALUES (?, ?, ?)',
+        key, JSON.stringify(value), expiresAt)
+    };
+  }
+
   refresh() {
     if (!this.refreshPromise) this.refreshPromise = this.performRefresh().finally(() => { this.refreshPromise = null; });
     return this.refreshPromise;
@@ -97,17 +126,28 @@ export class FeedStore {
     const observedAt = new Date().toISOString();
     this.setMeta('lastAttempt', observedAt);
     const results = new Array(pages.length); let next = 0;
+    let pageRequests = 0;
+    const fetchSource = (url, init) => {
+      if (pageRequests >= discovery.limits.requests) throw new Error('Refresh request budget exhausted');
+      pageRequests++; return fetch(url, init);
+    };
     // Limit concurrent origin connections. One broken page does not reject others.
     await Promise.all(Array.from({ length: Math.min(3, pages.length) }, async () => {
       for (;;) {
         const index = next++; if (index >= pages.length) break;
         const { source, page } = pages[index];
-        try { results[index] = { items: await fetchPage(source, page), error: null }; }
+        try { results[index] = { items: await fetchPage(source, page, fetchSource), error: null }; }
         catch (error) { results[index] = { items: [], error: String(error.message ?? error).slice(0, 300) }; }
       }
     }));
+    const cache = this.metadataCache(); const now = Date.parse(observedAt); const window = currentWindow();
+    this.sql.exec('DELETE FROM metadata_cache WHERE expires_at <= ?', now);
+    const client = metadataClient(discovery, this.env, cache, now, fetch, pageRequests);
+    const literature = await collectLiterature(discovery, client, window);
+    const researchers = await dateResearcherPapers(results.flatMap(result => result.items), literature.corpus,
+      discovery, client, cache, now, window);
     const previous = this.getItems();
-    const merged = await mergeItems(previous, results.flatMap(result => result.items), observedAt,
+    const merged = await mergeItems(previous, [...literature.incoming, ...researchers.incoming], observedAt,
       boundedInt(this.env.MAX_HISTORY_ITEMS, 2000, 5000));
     this.ctx.storage.transactionSync(() => {
       // All changes become visible together, including the source status report.
@@ -126,7 +166,14 @@ export class FeedStore {
           error: result.error
         }));
       }
-      if (results.some(result => !result.error)) this.setMeta('lastSuccess', observedAt);
+      this.setMeta('providers', JSON.stringify(literature.statuses));
+      this.setMeta('schema', '2');
+      this.setMeta('researcherDates', JSON.stringify(researchers.status));
+      this.setMeta('metadataErrors', JSON.stringify(client.errors));
+      this.setMeta('requestCount', String(client.requests));
+      if (results.some(result => !result.error) || literature.statuses.some(provider => provider.complete)) {
+        this.setMeta('lastSuccess', observedAt); this.setMeta('scanSucceeded', '1');
+      }
       if (merged.changed || !this.getMeta('contentUpdatedAt')) this.setMeta('contentUpdatedAt', observedAt);
     });
     return this.report();
@@ -143,16 +190,20 @@ export class FeedStore {
     // A first subscription bootstraps the store, with retry backoff if every source fails.
     let items = this.getItems();
     const last = this.getMeta('lastAttempt');
-    if (!items.length) {
+    if (this.getMeta('schema') !== '2' || !this.getMeta('lastAttempt')) {
       if (this.refreshPromise) await this.refreshPromise;
-      else if (!last || Date.now() - Date.parse(last) >= 15 * 60 * 1000) await this.refresh();
+      else await this.refresh();
       items = this.getItems();
     }
-    if (!items.length) return new Response('No research items available yet. Check /status.json and retry later.', {
+    if (!items.length && this.getMeta('scanSucceeded') !== '1' && last && Date.now() - Date.parse(last) >= 15 * 60 * 1000) {
+      await this.refresh(); items = this.getItems();
+    }
+    const visible = feedItems(items, currentWindow());
+    if (!visible.length && this.getMeta('scanSucceeded') !== '1') return new Response('No research metadata available yet. Check /status.json and retry later.', {
       status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '900', 'Cache-Control': 'no-store' }
     });
-    const body = renderRSS(items, { origin: url.origin, title: titleOf(this.env),
-      updatedAt: this.getMeta('contentUpdatedAt'), limit: boundedInt(this.env.MAX_FEED_ITEMS, 200, 1000) });
+    const body = renderRSS(visible, { window: currentWindow(), origin: url.origin, title: titleOf(this.env),
+      updatedAt: this.getMeta('contentUpdatedAt'), limit: boundedInt(this.env.MAX_FEED_ITEMS, 1000, 1000) });
     const etag = `"${await digest(body)}"`;
     const headers = { 'Content-Type': 'application/rss+xml; charset=utf-8',
       'Cache-Control': 'public, max-age=300', ETag: etag,
@@ -166,18 +217,18 @@ export class FeedStore {
     const report = this.report(); const esc = escapeXML;
     const link = path => esc(privateURL(origin, path, this.env.ACCESS_KEY));
     return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width">` +
-      `<title>研究者 RSS</title><style>body{font:16px/1.7 system-ui;max-width:850px;margin:48px auto;padding:0 24px;color:#172b4d}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}td,th{padding:10px;border-bottom:1px solid #ddd;text-align:left}a{color:#165cbe}</style>` +
-      `<h1>六位学者，一个 RSS</h1><p>在 Zotero 的“新建订阅源 → 从 URL”中添加：</p>` +
+      `<title>研究者与供应链 RSS</title><style>body{font:16px/1.7 system-ui;max-width:850px;margin:48px auto;padding:0 24px;color:#172b4d}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}td,th{padding:10px;border-bottom:1px solid #ddd;text-align:left}a{color:#165cbe}</style>` +
+      `<h1>研究者与供应链，一个 RSS</h1><p>在 Zotero 的“新建订阅源 → 从 URL”中添加：</p>` +
       `<p><a href="${link('/feed.xml')}"><code>${link('/feed.xml')}</code></a></p>` +
       `<p><a href="${link('/feed.opml')}">下载私有 OPML（包含访问密钥）</a> · <a href="${link('/status.json')}">抓取状态</a> · <a href="${link('/sources.json')}">链接配置</a></p>` +
       `<p>完整订阅地址和 OPML 相当于访问凭证，请勿分享。</p>` +
-      `<p>每 6 小时抓取。首次打开 RSS 时初始化；首次订阅会包含已有论文。RSS 日期表示首次发现时间。</p>` +
-      `<p>已保存 ${report.itemCount} 条；状态：${esc(report.health)}；最近尝试：${esc(report.lastAttempt ?? '尚未初始化')}。</p>` +
+      `<p>每 6 小时更新。只显示 ${esc(report.window.from)} 至 ${esc(report.window.to)}（北京时间，滚动两个月）有可核验发表日期的论文。</p><p>六位学者的论文继续追踪；UTD24、FT50、NBER、CEPR 新增论文必须在摘要中出现 supply chain、supply-chain 或供应链。缺少摘要或日期的新增论文不会推送。</p>` +
+      `<p>窗口内 ${report.itemCount} 条；状态：${esc(report.health)}；最近尝试：${esc(report.lastAttempt ?? '尚未初始化')}。</p>` +
       `<table><tr><th>研究者</th><th>页面状态</th></tr>` + sources.map(source => {
         const relevant = report.pages.filter(page => page.id.startsWith(`${source.id}/`));
         return `<tr><td><a href="${esc(source.homepage)}">${esc(source.name)}</a></td><td>` +
           relevant.map(page => `${esc(page.id.split('/')[1])}: ${esc(page.error ?? (page.checkedAt ? `${page.lastGoodCount} 条` : '未检查'))}`).join('<br>') + '</td></tr>';
-      }).join('') + `</table><p>这里只聚合公开研究链接，不替代完整书目信息。网页不可用或解析失败时保留已保存条目，不将错误消息混入 RSS。</p></html>`;
+      }).join('') + `</table><p>新增文献来源：${report.providers.map(provider => `${esc(provider.id)}：摘要命中 ${provider.matched}，缺摘要 ${provider.missingAbstract}，${esc(provider.error ?? (provider.complete ? '扫描完成' : '未完成'))}`).join('；')}。</p><p>公开索引可能延迟或缺少摘要，不能保证穷尽。详见抓取状态；旧条目超过窗口会自动退出订阅。</p></html>`;
   }
 }
 

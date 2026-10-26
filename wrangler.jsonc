@@ -11,8 +11,8 @@
   "triggers": { "crons": ["0 */6 * * *"] },
   "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
   "vars": {
-    "FEED_TITLE": "Economists — Research Updates",
-    "MAX_FEED_ITEMS": "200",
+    "FEED_TITLE": "Economists & Supply Chain — Recent Research",
+    "MAX_FEED_ITEMS": "1000",
     "MAX_HISTORY_ITEMS": "2000"
   }
 }

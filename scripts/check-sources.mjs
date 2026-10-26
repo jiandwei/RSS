@@ -1,7 +1,8 @@
 import { Miniflare } from 'miniflare';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import sources from '../sources.json' with { type: 'json' };
+import config from '../sources.json' with { type: 'json' };
+const sources = config.researchers;
 
 // Optional snapshots let the same native Worker parse pages previously fetched
 // from a network where academic domains are accessible. Not needed in production.
@@ -15,7 +16,9 @@ const mf = new Miniflare({
   durableObjects: { FEED_STORE: { className: 'FeedStore', useSQLite: true } },
   bindings: { MAX_FEED_ITEMS: '1000', ACCESS_KEY: validationKey },
   outboundService: async request => {
-    if (!snapshots) return fetch(request.url, { headers: { 'User-Agent': 'ScholarRSS/1.0', Accept: 'text/html' } });
+    if (!snapshots || !pageMap.has(request.url)) return fetch(request.url, {
+      headers: Object.fromEntries(request.headers), redirect: 'manual'
+    });
     try {
       const body = await readFile(resolve(snapshots, pageMap.get(request.url)), 'utf8');
       return new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
@@ -29,6 +32,7 @@ try {
   await mkdir('.scratch', { recursive: true });
   if (response.ok) await writeFile('.scratch/validated-feed.xml', await response.text());
   await writeFile('.scratch/source-report.json', JSON.stringify(report, null, 2) + '\n');
+  for (const provider of report.providers) console.log(`${provider.id}: ${provider.matched} matched; ${provider.missingAbstract} missing abstracts; ${provider.error ?? 'scan complete'}`);
   for (const page of report.pages) console.log(`${page.researcher} / ${page.id.split('/')[1]}: ${page.error ?? `${page.lastGoodCount} papers`}`);
   console.log(`Merged history: ${report.itemCount} items. Feed HTTP ${response.status}.`);
   if ((!response.ok || report.health !== 'healthy') && !args.includes('--allow-errors')) process.exitCode = 1;
