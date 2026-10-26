@@ -184,11 +184,16 @@ test('every read route rejects anonymous, invalid and duplicate credentials befo
   assert.equal(ambiguous.status, 401);
 });
 
-test('missing or weak reader key fails closed, including scheduled work, without storage or crawling', async () => {
-  for (const key of [undefined, '', 'short', 'replace-with-a-random-64-character-hex-key']) {
+test('missing and invalid reader keys have distinct actionable errors; both fail closed without storage or crawling', async () => {
+  for (const key of [undefined, '', 'short', 'replace-with-a-random-64-character-hex-key',
+    'a'.repeat(31), 'a'.repeat(129), 'invalid secret value with spaces 0123456789',
+    '"' + ACCESS_KEY + '"', ACCESS_KEY + '\n', ACCESS_KEY + '=', '中'.repeat(32)]) {
     const env = { ACCESS_KEY: key, FEED_STORE: { idFromName() { throw new Error('Unconfigured service touched storage'); } } };
     const response = await workerHandler.fetch(new Request(`https://private.example/feed.xml?key=${ACCESS_KEY}`), env);
     assert.equal(response.status, 503);
+    const message = await response.text();
+    assert.match(message, key ? /ACCESS_KEY is set but invalid.*32-128/ : /configure ACCESS_KEY.*then deploy/);
+    if (key && key.length > 8) assert.ok(!message.includes(key), 'configuration errors must not echo the secret');
     await workerHandler.scheduled({}, env, { waitUntil() { throw new Error('Unconfigured Cron started work'); } });
   }
 });

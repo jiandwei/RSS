@@ -154,6 +154,17 @@ curl -X POST https://你的Worker地址/refresh \
 
 ## 访问密钥与费用控制
 
+如果控制台已有 `ACCESS_KEY`，访问仍返回 HTTP 503：
+
+1. 名称必须是大写的 `ACCESS_KEY`，类型选 **密钥 / Secret**，并配置在实际访问 URL 对应的环境中。
+2. 值必须是 **32–128 位**，仅含英文字母、数字、`-`、`_`。不要带引号、空格、换行或 `=`，也不要以 `replace`、`example`、`changeme` 开头。本地运行 `openssl rand -hex 32` 可生成合规的 64 位随机值；复制其输出，不要复制命令本身。
+3. 编辑密钥后点击 **部署 / Deploy**，使更改进入当前运行版本。生产环境的密钥不会自动用于单独的预览环境。
+4. 使用该环境的实际地址访问 `/feed.xml?key=你的密钥`；密钥在控制台显示“值已加密”属于正常情况，不需要将它改成明文变量。
+
+新版错误提示区分 `configure ACCESS_KEY ... then deploy`（当前运行环境未取得值）和 `ACCESS_KEY is set but invalid ...`（有值但格式不合规）。这两种情况均返回 503，并停止存储访问与抓取；配置合规后，请求缺少或携带错误的订阅密钥则返回 401。
+
+控制台操作参考 [Cloudflare Secrets 官方说明](https://developers.cloudflare.com/workers/configuration/secrets/)。
+
 - 未授权请求在入口 Worker 即被拒绝，不会调用 Durable Object 或发起网站抓取；已授权的普通读取也不会反复抓取来源。
 - 这是应用层鉴权，**不能让恶意请求的 Worker 请求费用归零**。到达 Worker 的请求仍可能计入额度或计费；如需进一步防护，应按实际域名和账号方案在 Cloudflare 入口设置 WAF/限流，防止流量绕过入口规则。参考[官方请求计费说明](https://developers.cloudflare.com/workers/platform/pricing/)和[指标说明](https://developers.cloudflare.com/workers/observability/metrics-and-analytics/)。
 - 如果密钥泄露，在 Cloudflare 中更换 `ACCESS_KEY` 并更新 Zotero 订阅 URL；更新部署后旧密钥失效。不要在公开反馈中粘贴完整私有订阅地址。

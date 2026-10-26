@@ -37,7 +37,13 @@ async function handleRequest(request, env) {
     const allowed = ['/', '/feed.xml', '/feed.opml', '/sources.json', '/status.json', '/refresh'];
     if (!allowed.includes(url.pathname)) return new Response('Not found', { status: 404 });
     // Authenticate before any Durable Object lookup, database access or crawling.
-    if (!hasAccessKey(env)) return new Response('Service unavailable: configure ACCESS_KEY.', { status: 503 });
+    if (!hasAccessKey(env)) {
+      const configured = env.ACCESS_KEY !== undefined && env.ACCESS_KEY !== null && env.ACCESS_KEY !== '';
+      const message = configured
+        ? 'Service unavailable: ACCESS_KEY is set but invalid. Use a random 32-128 character key containing only A-Z, a-z, 0-9, - or _. Remove spaces, quotes and newlines; do not use a replace/example/changeme placeholder. Update the Worker Secret and deploy.'
+        : 'Service unavailable: configure ACCESS_KEY as a Worker Secret in the environment serving this URL, then deploy the changes.';
+      return new Response(message, { status: 503 });
+    }
     if (url.pathname === '/refresh') {
       if (!env.REFRESH_TOKEN || env.REFRESH_TOKEN === env.ACCESS_KEY) return new Response('Not found', { status: 404 });
       if (request.method !== 'POST') return new Response('Use POST', { status: 405, headers: { Allow: 'POST' } });
