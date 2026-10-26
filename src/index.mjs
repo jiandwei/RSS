@@ -1,6 +1,7 @@
 import sources from '../sources.json';
 import { digest, escapeXML, mergeItems, renderOPML, renderRSS, validateSources } from './feed.mjs';
 import { fetchPage } from './extract.mjs';
+import { authorizeRead, hasAccessKey, matchesSecret, privateResponse, privateURL } from './auth.mjs';
 
 validateSources(sources);
 const pages = sources.flatMap(source => source.pages.map(page => ({ source, page })));
@@ -10,46 +11,57 @@ const json = (value, status = 200) => Response.json(value, { status, headers: { 
 
 export default {
   async fetch(request, env) {
+    return privateResponse(await handleRequest(request, env));
+  },
+  async scheduled(_controller, env, ctx) {
+    // An unconfigured deployment must not spend money crawling or accessing storage.
+    if (!hasAccessKey(env)) return;
+    const stub = env.FEED_STORE.get(env.FEED_STORE.idFromName('all-scholars-v1'));
+    ctx.waitUntil((async () => {
+      const response = await stub.fetch('https://feed.internal/refresh', { method: 'POST' });
+      if (!response.ok) throw new Error(`Scheduled refresh failed: ${response.status}`);
+      const report = await response.json();
+      console.log(JSON.stringify({ event: 'refresh', items: report.itemCount,
+        failedPages: report.pages.filter(page => page.error).map(page => ({ id: page.id, error: page.error })) }));
+    })());
+  }
+};
+
+async function handleRequest(request, env) {
     const url = new URL(request.url);
     const allowed = ['/', '/feed.xml', '/feed.opml', '/sources.json', '/status.json', '/refresh'];
     if (!allowed.includes(url.pathname)) return new Response('Not found', { status: 404 });
+    // Authenticate before any Durable Object lookup, database access or crawling.
+    if (!hasAccessKey(env)) return new Response('Service unavailable: configure ACCESS_KEY.', { status: 503 });
     if (url.pathname === '/refresh') {
-      if (!env.REFRESH_TOKEN) return new Response('Not found', { status: 404 });
+      if (!env.REFRESH_TOKEN || env.REFRESH_TOKEN === env.ACCESS_KEY) return new Response('Not found', { status: 404 });
       if (request.method !== 'POST') return new Response('Use POST', { status: 405, headers: { Allow: 'POST' } });
-      const supplied = request.headers.get('Authorization') ?? '';
-      // Compare fixed-length hashes without early exit; never accept URL tokens.
-      const a = await digest(supplied); const b = await digest(`Bearer ${env.REFRESH_TOKEN}`);
-      let different = 0;
-      for (let i = 0; i < a.length; i++) different |= a.charCodeAt(i) ^ b.charCodeAt(i);
-      if (different) return new Response('Unauthorized', { status: 401 });
-    } else if (!['GET', 'HEAD'].includes(request.method)) {
-      return new Response('Use GET or HEAD', { status: 405, headers: { Allow: 'GET, HEAD' } });
+      if (!await matchesSecret(request.headers.get('Authorization'), `Bearer ${env.REFRESH_TOKEN}`)) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+    } else {
+      if (!await authorizeRead(request, env)) return new Response('Unauthorized', { status: 401 });
+      if (!['GET', 'HEAD'].includes(request.method)) {
+        return new Response('Use GET or HEAD', { status: 405, headers: { Allow: 'GET, HEAD' } });
+      }
     }
     if (url.pathname === '/sources.json') {
       const response = json(sources);
       return request.method === 'HEAD' ? new Response(null, response) : response;
     }
     if (url.pathname === '/feed.opml') {
-      return new Response(request.method === 'HEAD' ? null : renderOPML(url.origin, titleOf(env)), {
+      return new Response(request.method === 'HEAD' ? null : renderOPML(url.origin, titleOf(env), env.ACCESS_KEY), {
         headers: { 'Content-Type': 'text/x-opml; charset=utf-8', 'Cache-Control': 'public, max-age=3600',
           'Content-Disposition': 'attachment; filename="scholar-rss.opml"' }
       });
     }
     const stub = env.FEED_STORE.get(env.FEED_STORE.idFromName('all-scholars-v1'));
-    return stub.fetch(request);
-  },
-  async scheduled(_controller, env, ctx) {
-    const stub = env.FEED_STORE.get(env.FEED_STORE.idFromName('all-scholars-v1'));
-    ctx.waitUntil((async () => {
-      const response = await stub.fetch('https://feed.internal/refresh', { method: 'POST' });
-      if (!response.ok) throw new Error(`Scheduled refresh failed: ${response.status}`);
-      const report = await response.json();
-      // Log source health, not credentials or downloaded page content.
-      console.log(JSON.stringify({ event: 'refresh', items: report.itemCount,
-        failedPages: report.pages.filter(page => page.error).map(page => ({ id: page.id, error: page.error })) }));
-    })());
-  }
-};
+    // Never forward reader credentials into internal URLs, storage or source fetches.
+    url.search = '';
+    const forwarded = new Request(url, request);
+    forwarded.headers.delete('Authorization');
+    return stub.fetch(forwarded);
+}
 
 export class FeedStore {
   constructor(ctx, env) {
@@ -152,11 +164,13 @@ export class FeedStore {
   }
   home(origin) {
     const report = this.report(); const esc = escapeXML;
+    const link = path => esc(privateURL(origin, path, this.env.ACCESS_KEY));
     return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width">` +
       `<title>研究者 RSS</title><style>body{font:16px/1.7 system-ui;max-width:850px;margin:48px auto;padding:0 24px;color:#172b4d}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}td,th{padding:10px;border-bottom:1px solid #ddd;text-align:left}a{color:#165cbe}</style>` +
       `<h1>六位学者，一个 RSS</h1><p>在 Zotero 的“新建订阅源 → 从 URL”中添加：</p>` +
-      `<p><a href="/feed.xml"><code>${esc(origin)}/feed.xml</code></a></p>` +
-      `<p><a href="/feed.opml">下载 OPML（只包含上述一个订阅源）</a> · <a href="/status.json">抓取状态</a> · <a href="/sources.json">链接配置</a></p>` +
+      `<p><a href="${link('/feed.xml')}"><code>${link('/feed.xml')}</code></a></p>` +
+      `<p><a href="${link('/feed.opml')}">下载私有 OPML（包含访问密钥）</a> · <a href="${link('/status.json')}">抓取状态</a> · <a href="${link('/sources.json')}">链接配置</a></p>` +
+      `<p>完整订阅地址和 OPML 相当于访问凭证，请勿分享。</p>` +
       `<p>每 6 小时抓取。首次打开 RSS 时初始化；首次订阅会包含已有论文。RSS 日期表示首次发现时间。</p>` +
       `<p>已保存 ${report.itemCount} 条；状态：${esc(report.health)}；最近尝试：${esc(report.lastAttempt ?? '尚未初始化')}。</p>` +
       `<table><tr><th>研究者</th><th>页面状态</th></tr>` + sources.map(source => {

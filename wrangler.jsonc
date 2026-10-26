@@ -9,7 +9,7 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FeedStore"] }],
   "triggers": { "crons": ["0 */6 * * *"] },
-  "observability": { "enabled": true },
+  "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
   "vars": {
     "FEED_TITLE": "Economists — Research Updates",
     "MAX_FEED_ITEMS": "200",

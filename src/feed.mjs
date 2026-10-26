@@ -115,17 +115,18 @@ export function renderRSS(items, { title, origin, updatedAt, limit = 200 }) {
       researchers.map(name => `<category>${esc(name)}</category>`).join('') + '</item>';
   }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n` +
-    `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>` +
+    `<rss version="2.0"><channel>` +
     `<title>${esc(title)}</title><link>${esc(origin)}/</link>` +
     `<description>One combined feed of research links from six economists. Dates indicate first detection.</description>` +
     `<language>en</language><ttl>360</ttl>` +
-    `<atom:link href="${esc(origin)}/feed.xml" rel="self" type="application/rss+xml"/>` +
     `<lastBuildDate>${new Date(updatedAt).toUTCString()}</lastBuildDate>\n${entries}\n</channel></rss>\n`;
 }
 
-export function renderOPML(origin, title) {
+export function renderOPML(origin, title, accessKey) {
+  const feed = new URL('/feed.xml', origin); const home = new URL('/', origin);
+  if (accessKey) { feed.searchParams.set('key', accessKey); home.searchParams.set('key', accessKey); }
   return `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0"><head><title>${escapeXML(title)}</title></head>` +
     `<body><outline type="rss" text="${escapeXML(title)}" title="${escapeXML(title)}" ` +
-    `xmlUrl="${escapeXML(origin)}/feed.xml" htmlUrl="${escapeXML(origin)}/"/></body></opml>\n`;
+    `xmlUrl="${escapeXML(feed.href)}" htmlUrl="${escapeXML(home.href)}"/></body></opml>\n`;
 }
 

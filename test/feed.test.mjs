@@ -59,16 +59,21 @@ test('OPML imports a single combined feed, not six feeds', () => {
   const xml = renderOPML('https://rss.example', 'Combined feed');
   assert.equal((xml.match(/<outline /g) ?? []).length, 1);
   assert.match(xml, /xmlUrl="https:\/\/rss.example\/feed.xml"/);
+  const privateXML = renderOPML('https://rss.example', 'Private feed', 'reader-secret-0123456789abcdef0123456789');
+  assert.equal((privateXML.match(/<outline /g) ?? []).length, 1);
+  assert.match(privateXML, /xmlUrl="https:\/\/rss.example\/feed.xml\?key=reader-secret-/);
 });
 
-test('one-click deployment points to this repository and does not require optional refresh secrets', async () => {
+test('one-click deployment requests the mandatory reader key, not an optional admin secret', async () => {
   const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
   assert.match(readme, /\[!\[Deploy to Cloudflare\].*\]\(https:\/\/deploy\.workers\.cloudflare\.com\/\?url=https:\/\/github\.com\/jiandwei\/RSS\)/);
   const example = await readFile(new URL('../.dev.vars.example', import.meta.url), 'utf8');
-  assert.ok(example.split('\n').every(line => !line.trim() || line.trim().startsWith('#')));
+  assert.deepEqual(example.split('\n').filter(line => line.trim() && !line.trim().startsWith('#')), ['ACCESS_KEY=']);
   const config = JSON.parse(await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
   assert.equal(config.durable_objects.bindings[0].class_name, 'FeedStore');
   assert.deepEqual(config.migrations[0].new_sqlite_classes, ['FeedStore']);
   assert.deepEqual(config.triggers.crons, ['0 */6 * * *']);
+  assert.equal(config.observability.logs.invocation_logs, false);
+  assert.ok(!Object.hasOwn(config.vars, 'ACCESS_KEY'));
 });
 

@@ -8,11 +8,12 @@ import sources from '../sources.json' with { type: 'json' };
 const args = process.argv.slice(2);
 const snapshotsIndex = args.indexOf('--snapshots');
 const snapshots = snapshotsIndex >= 0 ? args[snapshotsIndex + 1] : null;
+const validationKey = 'validation-only-key-not-for-production-0123456789';
 const pageMap = new Map(sources.flatMap(source => source.pages.map(page => [page.url, `${source.id}--${page.id}.html`])));
 const mf = new Miniflare({
   modules: true, scriptPath: resolve('dist/index.js'), compatibilityDate: '2026-07-01',
   durableObjects: { FEED_STORE: { className: 'FeedStore', useSQLite: true } },
-  bindings: { MAX_FEED_ITEMS: '1000' },
+  bindings: { MAX_FEED_ITEMS: '1000', ACCESS_KEY: validationKey },
   outboundService: async request => {
     if (!snapshots) return fetch(request.url, { headers: { 'User-Agent': 'ScholarRSS/1.0', Accept: 'text/html' } });
     try {
@@ -22,8 +23,9 @@ const mf = new Miniflare({
   }
 });
 try {
-  const response = await mf.dispatchFetch('https://validation.example/feed.xml');
-  const report = await (await mf.dispatchFetch('https://validation.example/status.json')).json();
+  const headers = { Authorization: `Bearer ${validationKey}` };
+  const response = await mf.dispatchFetch('https://validation.example/feed.xml', { headers });
+  const report = await (await mf.dispatchFetch('https://validation.example/status.json', { headers })).json();
   await mkdir('.scratch', { recursive: true });
   if (response.ok) await writeFile('.scratch/validated-feed.xml', await response.text());
   await writeFile('.scratch/source-report.json', JSON.stringify(report, null, 2) + '\n');

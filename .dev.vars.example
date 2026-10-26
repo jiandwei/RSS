@@ -1,7 +1,8 @@
-# Optional. Only needed for authenticated POST /refresh, not Cron or first fetch.
-# Basic /feed.xml and scheduled updates require NO secrets.
-# Optional local setup: copy to .dev.vars and uncomment the following line.
-# Keep this example commented so Deploy to Cloudflare requests no mandatory secrets.
+# Required: generate a random URL-safe key (32-128 characters).
+# Example generation command: openssl rand -hex 32
+# Deploy to Cloudflare detects this field and prompts for its value.
+ACCESS_KEY=
+# Optional, separate admin secret for POST /refresh. Never reuse ACCESS_KEY.
 # Never commit .dev.vars or real tokens.
 # REFRESH_TOKEN=replace-with-a-long-random-secret
 
