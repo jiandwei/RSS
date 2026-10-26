@@ -1,0 +1,7 @@
+# Optional. Only needed for authenticated POST /refresh, not Cron or first fetch.
+# Basic /feed.xml and scheduled updates require NO secrets.
+# Optional local setup: copy to .dev.vars and uncomment the following line.
+# Keep this example commented so Deploy to Cloudflare requests no mandatory secrets.
+# Never commit .dev.vars or real tokens.
+# REFRESH_TOKEN=replace-with-a-long-random-secret
+

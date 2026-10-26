@@ -1,0 +1,96 @@
+[
+  {
+    "id": "marc-melitz",
+    "name": "Marc Melitz",
+    "homepage": "https://melitz.scholars.harvard.edu/",
+    "pages": [
+      {
+        "id": "publications",
+        "url": "https://melitz.scholars.harvard.edu/publications",
+        "mode": "links",
+        "selector": ".csl-entry a[href*='/publications/']"
+      }
+    ]
+  },
+  {
+    "id": "david-autor",
+    "name": "David Autor",
+    "homepage": "https://economics.mit.edu/people/faculty/david-h-autor",
+    "pages": [
+      {
+        "id": "working-papers",
+        "url": "https://economics.mit.edu/people/faculty/david-h-autor/working-papers",
+        "mode": "links",
+        "selector": ".publication-teaser__title a[href]"
+      },
+      {
+        "id": "published-articles",
+        "url": "https://economics.mit.edu/people/faculty/david-h-autor/published-articles",
+        "mode": "links",
+        "selector": ".publication-teaser__title a[href]"
+      }
+    ]
+  },
+  {
+    "id": "david-dorn",
+    "name": "David Dorn",
+    "homepage": "https://www.ddorn.net/",
+    "pages": [
+      {
+        "id": "research",
+        "url": "https://www.ddorn.net/research.htm",
+        "mode": "links",
+        "selector": ".section a[href*='papers/']"
+      }
+    ]
+  },
+  {
+    "id": "nicholas-bloom",
+    "name": "Nicholas Bloom",
+    "homepage": "https://nbloom.people.stanford.edu/",
+    "pages": [
+      {
+        "id": "research",
+        "url": "https://nbloom.people.stanford.edu/research",
+        "mode": "links",
+        "selector": ".su-wysiwyg-text p a[href]",
+        "excludeTitlePattern": "^(?:Firm level uncertainty instruments|Industry Uncertainty Data|Survey Template|Simulation code|Management data|CM ReplicationData|Updated Data|Quarterly Data|Simulation replication)$"
+      }
+    ]
+  },
+  {
+    "id": "john-van-reenen",
+    "name": "John Van Reenen",
+    "homepage": "https://www.johnvanreenen.com/",
+    "pages": [
+      {
+        "id": "work-in-progress",
+        "url": "https://www.johnvanreenen.com/work-in-progress",
+        "mode": "quoted-paragraphs",
+        "selector": "div.wixui-rich-text p"
+      },
+      {
+        "id": "all-publications",
+        "url": "https://www.johnvanreenen.com/all-publications",
+        "mode": "quoted-paragraphs",
+        "selector": "div.wixui-rich-text p"
+      }
+    ]
+  },
+  {
+    "id": "peter-klenow",
+    "name": "Peter Klenow",
+    "homepage": "https://klenow.com/",
+    "notes": "2026-10-26: homepage returned HTTP 503 during validation. Keep retrying; do not substitute the Stanford directory listing, which includes other authors' teaching materials.",
+    "pages": [
+      {
+        "id": "research",
+        "url": "https://klenow.com/",
+        "mode": "links",
+        "selector": "body a[href]",
+        "includeUrlPattern": "\\.pdf(?:[?#]|$)|nber\\.org/papers/|doi\\.org/|papers\\.ssrn\\.com/"
+      }
+    ]
+  }
+]
+
