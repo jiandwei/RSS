@@ -145,21 +145,50 @@ export function feedItems(items, window) {
   }).sort((a, b) => b.date.value.localeCompare(a.date.value) || a.title.localeCompare(b.title));
 }
 
+export function renderPaperDetails(item) {
+  const esc = escapeXML;
+  const link = (href, label) => {
+    const url = safeURL(href);
+    return url ? `<a href="${esc(url)}" rel="noreferrer noopener" style="color:#356958;text-decoration:underline;text-underline-offset:3px">${esc(label)}</a>` : esc(label);
+  };
+  const date = item.date.precision === 'month' ? `${item.date.value.slice(0, 7)}（月精度，订阅日期使用当月 1 日）` : item.date.value;
+  const metadata = [
+    ['作者', item.authors?.length ? esc(item.authors.join(' · ')) : '作者信息暂缺'],
+    ['发表日期', esc(date)],
+    ...(item.journal ? [['期刊', esc(item.journal)]] : []),
+    ...(item.doi ? [['DOI', link(`https://doi.org/${String(item.doi).split('/').map(encodeURIComponent).join('/')}`, item.doi)]] : [])
+  ];
+  const sources = new Map();
+  for (const record of item.records ?? []) {
+    const url = safeURL(record.pageURL);
+    if (!url) continue;
+    if (!sources.has(url)) sources.set(url, new Set());
+    sources.get(url).add(record.researcher || record.groups?.join(' · ') || '文献来源');
+  }
+  const alternatives = [...new Set((item.records ?? []).map(record => safeURL(record.url)))].filter(url => url && url !== safeURL(item.url));
+  const abstract = item.abstract ? String(item.abstract).split(/\r?\n\s*\r?\n/).filter(text => text.trim()).map(text =>
+    `<p style="margin:0 0 14px;line-height:1.9;overflow-wrap:anywhere">${esc(text)}</p>`).join('') :
+    '<p style="margin:0 0 14px;line-height:1.9;color:#737b77">原始来源暂未提供摘要；可通过论文链接查看原文。</p>';
+  return `<div class="paper-details" style="font-size:15px;line-height:1.8;color:#303d36">` +
+    `<table class="paper-meta" role="presentation" style="width:100%;border-collapse:collapse;font-size:14px;line-height:1.8"><tbody>` +
+    metadata.map(([label, value]) => `<tr><th scope="row" style="width:76px;padding:3px 16px 3px 0;text-align:left;vertical-align:top;font-weight:500;color:#737b77">${label}</th><td style="padding:3px 0;overflow-wrap:anywhere">${value}</td></tr>`).join('') +
+    `</tbody></table><h3 style="font-size:15px;font-weight:600;margin:24px 0 10px">摘要</h3>${abstract}` +
+    (item.abstractSource ? `<p class="provenance" style="font-size:12px;color:#737b77;margin:8px 0">摘要来源：${esc(item.abstractSource)}</p>` : '') +
+    `<p class="provenance" style="font-size:12px;color:#737b77;margin:8px 0">日期依据：${esc(item.date.source)}</p>` +
+    (sources.size || alternatives.length ? `<div class="paper-sources" style="border-top:1px solid #e6ebe7;margin-top:20px;padding-top:14px;font-size:13px">` +
+      `<strong style="font-weight:500;color:#737b77">发现来源与其他版本</strong><ul style="margin:8px 0 0;padding-left:20px">` +
+      [...sources].map(([url, labels]) => `<li>${link(url, [...labels].join(' · '))}</li>`).join('') +
+      alternatives.map((url, index) => `<li>${link(url, `其他论文链接 ${index + 1}`)}</li>`).join('') + '</ul></div>' : '') + '</div>';
+}
+
 export function renderRSS(items, { title, origin, updatedAt, window, limit = 200 }) {
   const esc = escapeXML;
   const entries = items.slice(0, limit).map(item => {
-    const description = [
-      `Publication date: ${item.date.precision === 'month' ? item.date.value.slice(0, 7) + ' (month precision; RSS uses day 1)' : item.date.value}. Source: ${item.date.source}.`,
-      item.journal ? `Journal: ${item.journal}.` : '',
-      item.doi ? `DOI: ${item.doi}.` : '',
-      item.abstract ? `Abstract (${item.abstractSource}): ${item.abstract}` : 'Abstract not available (monitored researcher paper).',
-      ...item.records.map(r => `Source (${r.researcher ?? r.groups.join(', ')}): ${r.pageURL}`),
-      ...[...new Set(item.records.map(r => r.url))].filter(url => url !== item.url).map(url => `Other paper link: ${url}`)
-    ].filter(Boolean).join('\n\n');
+    const description = renderPaperDetails(item).replaceAll(']]>', ']]]]><![CDATA[>');
     return `<item><title>${esc(item.title)}</title><link>${esc(item.url)}</link>` +
       `<guid isPermaLink="false">urn:scholar-rss:${item.id}</guid>` +
       `<pubDate>${new Date(item.date.value + 'T00:00:00Z').toUTCString()}</pubDate>` +
-      `<description>${esc(description)}</description>` +
+      `<description><![CDATA[${description}]]></description>` +
       item.authors.map(name => `<dc:creator>${esc(name)}</dc:creator>`).join('') +
       item.categories.map(name => `<category>${esc(name)}</category>`).join('') + '</item>';
   }).join('\n');
@@ -178,4 +207,5 @@ export function renderOPML(origin, title, accessKey) {
     `<body><outline type="rss" text="${escapeXML(title)}" title="${escapeXML(title)}" ` +
     `xmlUrl="${escapeXML(feed.href)}" htmlUrl="${escapeXML(home.href)}"/></body></opml>\n`;
 }
+
 

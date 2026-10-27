@@ -4,6 +4,7 @@ import { collectLiterature, dateResearcherPapers, metadataClient } from './disco
 import { digest, escapeXML, mergeItems, feedItems, renderOPML, renderRSS, validateSources } from './feed.mjs';
 import { fetchPage } from './extract.mjs';
 import { authorizeRead, hasAccessKey, matchesSecret, privateResponse, privateURL } from './auth.mjs';
+import { renderReadingPage } from './reading.mjs';
 
 validateSources(config);
 const sources = config.researchers;
@@ -15,7 +16,8 @@ const boundedInt = (value, fallback, max) => Math.max(1, Math.min(max, Number.pa
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 const htmlPage = body => `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width">` +
   `<title>研究者与供应链 RSS · 抓取状态</title><style>body{font:16px/1.7 system-ui;max-width:850px;margin:48px auto;padding:0 24px;color:#172b4d}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}td,th{padding:10px;border-bottom:1px solid #ddd;text-align:left}a{color:#165cbe}input,button{font:inherit;padding:8px;max-width:100%;box-sizing:border-box}form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}</style>` + body + '</html>';
-const homeResponse = (request, body) => new Response(request.method === 'HEAD' ? null : body, {
+const homeResponse = (request, body, status = 200) => new Response(request.method === 'HEAD' ? null : body, {
+  status,
   headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
     'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" }
 });
@@ -40,7 +42,7 @@ export default {
 
 async function handleRequest(request, env) {
     const url = new URL(request.url);
-    const allowed = ['/', '/feed.xml', '/feed.opml', '/sources.json', '/status.json', '/refresh'];
+    const allowed = ['/', '/feed.xml', '/papers.html', '/feed.opml', '/sources.json', '/status.json', '/refresh'];
     if (!allowed.includes(url.pathname)) return new Response('Not found', { status: 404 });
     // Cloudflare's Visit button opens a read-only overview without credentials.
     // Explicitly supplied credentials still go through normal authentication.
@@ -215,7 +217,7 @@ export class FeedStore {
     if (url.pathname === '/' || url.pathname === '/overview') {
       return homeResponse(request, this.home(url.origin, url.pathname === '/overview'));
     }
-    if (url.pathname !== '/feed.xml') return new Response('Not found', { status: 404 });
+    if (!['/feed.xml', '/papers.html'].includes(url.pathname)) return new Response('Not found', { status: 404 });
     // A first subscription bootstraps the store, with retry backoff if every source fails.
     let items = this.getItems();
     const last = this.getMeta('lastAttempt');
@@ -228,7 +230,18 @@ export class FeedStore {
       await this.refresh(); items = this.getItems();
     }
     const visible = feedItems(items, currentWindow());
-    if (!visible.length && this.getMeta('scanSucceeded') !== '1') return new Response('No research metadata available yet. Check /status.json and retry later.', {
+    const unavailable = !visible.length && this.getMeta('scanSucceeded') !== '1';
+    if (url.pathname === '/papers.html') {
+      const response = homeResponse(request, renderReadingPage(visible, {
+        window: currentWindow(), origin: url.origin, title: titleOf(this.env), accessKey: this.env.ACCESS_KEY,
+        updatedAt: this.getMeta('contentUpdatedAt'), health: this.report().health, unavailable,
+        limit: boundedInt(this.env.MAX_FEED_ITEMS, 1000, 1000)
+      }), unavailable ? 503 : 200);
+      response.headers.set('Content-Disposition', 'inline; filename="scholar-papers.html"');
+      if (unavailable) response.headers.set('Retry-After', '900');
+      return response;
+    }
+    if (unavailable) return new Response('No research metadata available yet. Check /status.json and retry later.', {
       status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '900', 'Cache-Control': 'no-store' }
     });
     const body = renderRSS(visible, { window: currentWindow(), origin: url.origin, title: titleOf(this.env),
@@ -248,10 +261,10 @@ export class FeedStore {
     const time = value => value ? esc(new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })) : '尚无记录';
     const health = { 'not-initialized': '尚未初始化', degraded: '部分来源失败或元数据不完整', healthy: '正常' }[report.health];
     const subscription = publicView ?
-      `<h2>私有订阅</h2><form method="get" action="/"><label for="key">访问密钥</label><input id="key" name="key" type="password" required minlength="32" maxlength="128" pattern="[A-Za-z0-9_\\-]{32,128}" autocomplete="off"><button type="submit">查看订阅地址和详细状态</button></form>` :
+      `<h2>私有订阅</h2><form method="get" action="/"><label for="key">访问密钥</label><input id="key" name="key" type="password" required minlength="32" maxlength="128" pattern="[A-Za-z0-9_\\-]{32,128}" autocomplete="off"><button type="submit">查看论文与私有订阅</button></form>` :
       `<h2>私有订阅</h2><p>在 Zotero 的“新建订阅源 → 从 URL”中添加：</p>` +
       `<p><a href="${link('/feed.xml')}"><code>${link('/feed.xml')}</code></a></p>` +
-      `<p><a href="${link('/feed.opml')}">下载私有 OPML（包含访问密钥）</a> · <a href="${link('/status.json')}">详细抓取状态</a> · <a href="${link('/sources.json')}">链接配置</a></p>` +
+      `<p><a href="${link('/papers.html')}">阅读论文结果</a> · <a href="${link('/feed.opml')}">下载私有 OPML（包含访问密钥）</a> · <a href="${link('/status.json')}">详细抓取状态</a> · <a href="${link('/sources.json')}">链接配置</a></p>` +
       `<p>完整订阅地址和 OPML 相当于访问凭证，请勿分享。</p>`;
     return htmlPage(`<h1>研究者与供应链 · 抓取状态</h1>` +
       `<p role="status">状态：${esc(health)}；窗口内 ${report.itemCount} 条，已保存 ${report.storedItemCount} 条。</p>` +

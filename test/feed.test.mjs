@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import config from '../sources.json' with { type: 'json' };
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
 const sources = config.researchers;
 const window = { from: '2026-08-26', to: '2026-10-26', timeZone: 'Asia/Shanghai' };
 import { cleanText, escapeXML, isPaperTitle, mergeItems, feedItems, normalizeTitle, renderOPML, renderRSS, safeURL, validateSources } from '../src/feed.mjs';
@@ -53,8 +54,33 @@ test('RSS emits stable GUIDs, actual publication dates and metadata authors', as
   assert.match(xml, /Trade, Management &amp; Productivity/);
   assert.match(xml, /urn:scholar-rss:[a-f0-9]{64}/);
   assert.match(xml, /<pubDate>Tue, 20 Oct 2026 00:00:00 GMT<\/pubDate>/);
-  assert.match(xml, /Publication date: 2026-10-20/);
+  const description = new XMLParser().parse(xml).rss.channel.item.description;
+  assert.match(description, /发表日期/);
+  assert.match(description, /2026-10-20/);
   assert.match(xml, /<dc:creator>Nicholas Bloom<\/dc:creator>/);
+});
+
+test('formatted RSS descriptions preserve safe HTML and linked metadata after one XML parse', async () => {
+  const { items } = await mergeItems([], [candidate({
+    title: 'Safe Paper on Production Networks', doi: '10.5555/networks',
+    authors: ['A. Researcher & B. Author'], journal: 'Journal of Trade & Networks',
+    abstract: 'First paragraph about trade.\n\nSecond paragraph: <img src=x onerror=alert(1)> &lt;script&gt;alert(1)&lt;/script&gt; ]]>',
+    abstractSource: 'Publisher <script>untrusted</script>', pageURL: 'https://example.com/research?a=1&b=2'
+  })], '2026-10-26T08:00:00Z');
+  const visible = feedItems(items, window);
+  visible[0].records.push({ ...visible[0].records[0], pageURL: 'javascript:alert(1)', url: 'data:text/html,bad', researcher: 'Bad link' });
+  const xml = renderRSS(visible, { window, title: 'Research', origin: 'https://rss.example', updatedAt: items[0].firstSeen });
+  assert.equal(XMLValidator.validate(xml), true);
+  const item = new XMLParser().parse(xml).rss.channel.item;
+  assert.equal(item['dc:creator'], 'A. Researcher & B. Author');
+  assert.match(item.description, /<table[^>]*>/);
+  assert.match(item.description, /<h3[^>]*>摘要<\/h3>/);
+  assert.match(item.description, /<\/p><p[^>]*>Second paragraph/);
+  assert.match(item.description, /href="https:\/\/doi.org\/10.5555\/networks"/);
+  assert.match(item.description, /href="https:\/\/example.com\/research\?a=1&amp;b=2"/);
+  assert.match(item.description, /&lt;img/);
+  assert.match(item.description, /&lt;script&gt;/);
+  assert.doesNotMatch(item.description, /<script\b|<img\b|href="(?:javascript|data):/i);
 });
 
 test('OPML imports a single combined feed, not six feeds', () => {
@@ -103,3 +129,4 @@ test('one DOI joins alternate titles, eligible versions determine categories, ex
   const titleOnly = await mergeItems([], [candidate({ kind: 'literature', title: 'Supply Chain Management and Finance', abstract: 'Banking evidence.', date: a.date })], '2026-10-26T00:00:00Z');
   assert.equal(feedItems(titleOnly.items, window).length, 0);
 });
+
