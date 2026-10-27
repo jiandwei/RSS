@@ -6,7 +6,7 @@
 
 追踪 Marc Melitz、David Autor、David Dorn、Nicholas Bloom、John Van Reenen、Peter Klenow，并加入 **UTD24、FT50、NBER、CEPR 中摘要提到供应链的论文**。所有条目都只保留滚动最近两个月，仍然只有一个订阅地址。无需 RSSHub、AI API 或浏览器服务器。
 
-**所有读取接口均需要 `ACCESS_KEY`。没有设置密钥、密钥不符合要求或请求未授权时，服务不会读取 Durable Object、初始化数据库或抓取学者网站。**
+**点击 Cloudflare 的“访问”即可打开首页，直接查看抓取概况；RSS、OPML、详细状态和配置接口仍需要 `ACCESS_KEY`。** 首页只读取已有结果，不触发抓取，也不展示密钥、私有订阅地址或原始错误。没有设置密钥或密钥格式不合规时，首页显示配置指引，服务不会访问存储或抓取来源；私有接口的未授权请求也不会访问存储或触发抓取。
 
 ## 一键部署（推荐）
 
@@ -16,11 +16,11 @@
 2. 选择目标账号、仓库名称和 Worker 名称，确认部署。按钮会复制本仓库到你的 GitHub 账号；如果账号内已有 `RSS`，为副本选择其他名称，例如 `rss-worker`。想直接持续部署当前仓库，请使用下文“方式 A”。
 3. 在部署页面的 Secret 输入框中设置 **`ACCESS_KEY`**：使用随机的 32–128 位 URL 安全字符（字母、数字、`-`、`_`），推荐用 `openssl rand -hex 32` 在本地生成。不要使用示例值，不要提交到 GitHub。
 4. 等待构建完成。Cloudflare 根据 `wrangler.jsonc` 自动配置 SQLite Durable Object 和 Cron，无需手动填写 namespace ID。若部署界面没有显示 Secret 输入框，在部署后的 Worker 设置 → Variables and Secrets 中添加 `ACCESS_KEY`，类型选 **Secret**，保存并部署。
-5. 在 Cloudflare 给出的实际地址后加上 `/feed.xml?key=你的密钥`，将这**一个私有地址**添加到 Zotero。也可以访问 `/?key=你的密钥` 下载只包含一个源的私有 OPML。
+5. 点击 Cloudflare 的“访问”，即可在首页查看最近抓取时间、条目数和各来源状态。在首页输入访问密钥可查看私有订阅地址；也可以在实际地址后加上 `/feed.xml?key=你的密钥`，将这**一个私有地址**添加到 Zotero，或访问 `/?key=你的密钥` 下载私有 OPML。
 
 `ACCESS_KEY` 是必须设置的 Worker Secret；`.dev.vars.example` 仅声明变量名，**不包含任何默认密钥**。`REFRESH_TOKEN` 是可选且独立的管理密钥，不能与读取密钥相同。Cloudflare 会检测 `package.json`，构建使用 `npm run build`，部署使用 `npm run deploy`；Node.js 版本由 `.node-version` 指定。
 
-第一次通过鉴权获取 RSS 才会初始化数据。带密钥访问 `/status.json` 可检查每个页面的成功/失败状态；部署入口可用不代表学者网站一定允许 Cloudflare 出口访问。未配置密钥返回 503，密钥错误或缺失返回 401，默认关闭访问；Cron 在未正确配置密钥时也不会进行抓取。
+数据由定时更新或第一次通过鉴权获取 RSS 初始化；仅打开首页不会发起抓取。带密钥访问 `/status.json` 可查看详细错误与覆盖情况。私有接口在服务未配置合规密钥时返回 503，请求密钥错误或缺失时返回 401；首页始终可直接打开，配置未完成时显示“抓取已暂停”。Cron 在未正确配置密钥时也不会进行抓取。
 
 ## 论文范围与时间口径
 
@@ -42,7 +42,7 @@
 
 `sources.json` 是唯一来源配置：`researchers` 保存六位学者的八个页面，`discovery` 保存 51 本期刊的 ISSN、官方名单出处、NBER/CEPR/API 地址、两个月窗口和请求上限。所有结果保存在同一个 SQLite Durable Object 中，Zotero 只订阅 `/feed.xml?key=你的密钥`。
 
-Cron 每六小时更新：UTC `0 */6 * * *`，即北京时间每天 **02:00、08:00、14:00、20:00**。首次通过鉴权打开 RSS 会初始化；后续读取使用已保存的数据，不因读者订阅次数增加而反复访问上游。
+Cron 每六小时更新：UTC `0 */6 * * *`，即北京时间每天 **02:00、08:00、14:00、20:00**。首次通过鉴权打开 RSS 也会初始化；首页只查看已有抓取结果，后续 RSS 读取也使用已保存的数据，不因读者订阅次数增加而反复访问上游。
 
 每次刷新最多发出 **45 次上游请求**，包括学者页面、重定向、分页和有限重试；API 调用另有整体时间预算。Crossref 一次合并查询名单 ISSN 并分页，CEPR 最多 12 页，OpenAlex 按 DOI 批量补摘要。摘要结果缓存七天，缺失结果缓存一天；每次最多核验 8 个额外学者题名，优先各列表前四项，已缓存项不会消耗查询次数。
 
@@ -75,7 +75,7 @@ npx wrangler secret put OPENALEX_API_KEY
 2. 在 [Cloudflare 控制台](https://dash.cloudflare.com/) 的 Workers & Pages 中，从 GitHub 导入该仓库，选择仓库根目录。
 3. 安装依赖使用 `npm ci`；部署命令使用 `npm run deploy`。如果界面要求构建命令，可使用 `npm run check`。
 4. 使用仓库中的 `wrangler.jsonc`，其中已定义 `FEED_STORE` Durable Object、SQLite 迁移和定时触发器。**不要删除 migrations，也无需手动填写 KV namespace ID。**
-5. 在 Worker 的 Variables and Secrets 中设置 `ACCESS_KEY`（类型 **Secret**），保存并部署。之后通过带 `?key=你的密钥` 的地址访问 `/feed.xml` 初始化和 `/status.json` 检查状态。
+5. 在 Worker 的 Variables and Secrets 中设置 `ACCESS_KEY`（类型 **Secret**），保存并部署。点击“访问”可查看公开抓取概况；通过带 `?key=你的密钥` 的地址访问 `/feed.xml` 可启动首次抓取，访问 `/status.json` 可检查详细状态。
 
 GitHub 导入和 Cloudflare 授权需在你自己的账号中完成。此仓库不包含账号凭据；没有完成部署时，不存在可供订阅的线上地址。
 
@@ -95,7 +95,7 @@ npm run deploy
 npx wrangler secret put ACCESS_KEY
 ```
 
-最后一步会交互式请求输入读取密钥。Wrangler 会创建配置中的 Durable Object namespace 和 SQLite 类。以命令输出中的 URL 为准；密钥未设置好之前，服务保持关闭访问。
+最后一步会交互式请求输入读取密钥。Wrangler 会创建配置中的 Durable Object namespace 和 SQLite 类。以命令输出中的 URL 为准；密钥未设置好之前，首页显示配置指引，私有接口保持关闭。
 
 ### 可选：通过 GitHub Actions 手动部署
 
@@ -128,14 +128,14 @@ npx wrangler secret put ACCESS_KEY
 
 | 路径 | 用途 |
 |---|---|
-| `/` | 查看统一订阅地址和每个页面的抓取状态 |
+| `/` | 无需密钥查看抓取概况；输入密钥后查看私有订阅地址和详细状态入口 |
 | `/feed.xml` | 唯一的聚合 RSS 2.0，支持 ETag、304、HEAD |
 | `/feed.opml` | 只包含上述一个 RSS 的订阅文件 |
 | `/sources.json` | 查看统一链接配置 |
 | `/status.json` | 日期窗口、各来源覆盖、摘要/日期缺口、请求数、失败信息 |
 | `POST /refresh` | 可选的手动刷新，必须设置并携带 Bearer secret |
 
-上面所有读取路由（含首页、配置、状态、RSS 和 OPML）都要求 `ACCESS_KEY`。每个响应使用 `private, no-store`，防止公共缓存暴露数据；使用 `Referrer-Policy: no-referrer` 防止点击外链时泄露 URL 密钥。Worker 自动请求日志已禁用，内部转发和上游抓取也会移除读取凭证；但仍应注意浏览器历史、客户端同步和其他平台日志对完整 URL 的保存。
+除不携带凭证的首页外，配置、详细状态、RSS 和 OPML 都要求 `ACCESS_KEY`。首页公开展示时间窗口、条目数、最近尝试/成功时间、学者页面成功或失败概况及元数据来源扫描概况，不公开原始错误、密钥或私有链接；显式携带错误凭证访问首页仍返回 401。每个响应使用 `private, no-store`，防止公共缓存暴露数据；使用 `Referrer-Policy: no-referrer` 防止点击外链时泄露 URL 密钥。Worker 自动请求日志已禁用，内部转发和上游抓取也会移除读取凭证；但仍应注意浏览器历史、客户端同步和其他平台日志对完整 URL 的保存。
 
 默认不启用手动刷新端点。如需手动刷新，另设一个不同的随机管理密钥：
 
@@ -154,18 +154,18 @@ curl -X POST https://你的Worker地址/refresh \
 
 ## 访问密钥与费用控制
 
-如果控制台已有 `ACCESS_KEY`，访问仍返回 HTTP 503：
+如果控制台已有 `ACCESS_KEY`，私有接口仍返回 HTTP 503，或首页提示“抓取已暂停”：
 
 1. 名称必须是大写的 `ACCESS_KEY`，类型选 **密钥 / Secret**，并配置在实际访问 URL 对应的环境中。
 2. 值必须是 **32–128 位**，仅含英文字母、数字、`-`、`_`。不要带引号、空格、换行或 `=`，也不要以 `replace`、`example`、`changeme` 开头。本地运行 `openssl rand -hex 32` 可生成合规的 64 位随机值；复制其输出，不要复制命令本身。
 3. 编辑密钥后点击 **部署 / Deploy**，使更改进入当前运行版本。生产环境的密钥不会自动用于单独的预览环境。
 4. 使用该环境的实际地址访问 `/feed.xml?key=你的密钥`；密钥在控制台显示“值已加密”属于正常情况，不需要将它改成明文变量。
 
-新版错误提示区分 `configure ACCESS_KEY ... then deploy`（当前运行环境未取得值）和 `ACCESS_KEY is set but invalid ...`（有值但格式不合规）。这两种情况均返回 503，并停止存储访问与抓取；配置合规后，请求缺少或携带错误的订阅密钥则返回 401。
+私有接口的错误提示区分 `configure ACCESS_KEY ... then deploy`（当前运行环境未取得值）和 `ACCESS_KEY is set but invalid ...`（有值但格式不合规）。这两种情况均返回 503，并停止存储访问与抓取；首页以可读页面说明配置问题。配置合规后，私有接口缺少或携带错误的订阅密钥则返回 401。
 
 控制台操作参考 [Cloudflare Secrets 官方说明](https://developers.cloudflare.com/workers/configuration/secrets/)。
 
-- 未授权请求在入口 Worker 即被拒绝，不会调用 Durable Object 或发起网站抓取；已授权的普通读取也不会反复抓取来源。
+- 私有接口的未授权请求在入口 Worker 即被拒绝，不会调用 Durable Object 或发起网站抓取。公开首页会调用 Durable Object 读取已有状态，因此有相应的读取开销；它不会发起上游抓取，已授权的普通读取也不会反复抓取来源。
 - 这是应用层鉴权，**不能让恶意请求的 Worker 请求费用归零**。到达 Worker 的请求仍可能计入额度或计费；如需进一步防护，应按实际域名和账号方案在 Cloudflare 入口设置 WAF/限流，防止流量绕过入口规则。参考[官方请求计费说明](https://developers.cloudflare.com/workers/platform/pricing/)和[指标说明](https://developers.cloudflare.com/workers/observability/metrics-and-analytics/)。
 - 如果密钥泄露，在 Cloudflare 中更换 `ACCESS_KEY` 并更新 Zotero 订阅 URL；更新部署后旧密钥失效。不要在公开反馈中粘贴完整私有订阅地址。
 
@@ -208,7 +208,7 @@ npm run dev         # 本地 Worker、SQLite Durable Object；访问也需要密
 npm run check:sources  # 实际访问来源，报告逐页解析结果；需要网络
 ```
 
-`npm run check` 使用小型手写 HTML fixtures 和仅用于测试的密钥，不依赖学者网站在线状态。测试涵盖两个月边界与月末、真实发表日期、仅摘要命中、期刊白名单、Crossref/CEPR 分页、NBER 缺日期时的元数据连接、OpenAlex 精确 DOI 补全、跨来源去重、过期/旧版条目排除、GUID 稳定性、XML 转义、私有单源 OPML、并发初始化、所有路由鉴权、未授权请求零存储调用、密钥缺失时关闭 Cron、管理/读取密钥隔离、条件请求、失败保留历史、空解析报警。集成测试运行真正的 `HTMLRewriter` 和 SQLite Durable Objects。
+`npm run check` 使用小型手写 HTML fixtures 和仅用于测试的密钥，不依赖学者网站在线状态。测试涵盖两个月边界与月末、真实发表日期、仅摘要命中、期刊白名单、Crossref/CEPR 分页、NBER 缺日期时的元数据连接、OpenAlex 精确 DOI 补全、跨来源去重、过期/旧版条目排除、GUID 稳定性、XML 转义、私有单源 OPML、并发初始化、私有路由鉴权、私有接口未授权请求零存储调用、公开首页不触发抓取或泄露凭证/原始错误、配置指引、密钥缺失时关闭 Cron、管理/读取密钥隔离、条件请求、失败保留历史、空解析报警。集成测试运行真正的 `HTMLRewriter` 和 SQLite Durable Objects。
 
 若当前 Node 网络环境不能直接访问学术网站，可把从对应公开 URL 下载的 HTML 放入本地目录，文件名为 `<研究者id>--<页面id>.html`，运行：
 
@@ -217,3 +217,4 @@ node scripts/check-sources.mjs --snapshots .scratch/pages --allow-errors
 ```
 
 带 `--snapshots` 只替换学者 HTML，文献元数据仍访问真实 API。探测报告和 XML 保存在 `.scratch/`，不会提交到 GitHub。`--allow-errors` 只影响探测脚本退出码，不改变生产中的错误处理。
+
