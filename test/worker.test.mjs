@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Miniflare } from 'miniflare';
-import workerHandler from '../dist/index.js';
+import workerHandler, { FeedStore } from '../dist/index.js';
 
 const ACCESS_KEY = 'test-reader-secret-0123456789abcdef0123456789';
 const recent = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
@@ -140,6 +140,11 @@ test('all failed sources produce an honest 503 with retry backoff, not a fake fe
   assert.equal(calls, firstCalls);
   const report = await (await read(mf, 'https://empty.example/status.json')).json();
   assert.ok(report.pages.every(page => page.error.includes('No papers extracted')));
+  const reading = await read(mf, 'https://empty.example/papers.html');
+  assert.equal(reading.status, 503);
+  assert.equal(reading.headers.get('Retry-After'), '900');
+  assert.match(await reading.text(), /暂未取得可用的论文数据/);
+  assert.equal(calls, firstCalls, 'opening the reading file also respects failure backoff');
 });
 
 test('successful scans without qualifying recent papers return one empty RSS and do not crawl again on reads', async t => {
@@ -157,6 +162,10 @@ test('successful scans without qualifying recent papers return one empty RSS and
   const first = calls;
   assert.equal((await read(mf, 'https://rss.example/feed.xml')).status, 200);
   assert.equal(calls, first); assert.ok(calls <= 45);
+  const reading = await read(mf, 'https://rss.example/papers.html');
+  assert.equal(reading.status, 200);
+  assert.match(await reading.text(), /暂时没有符合条件的论文/);
+  assert.equal(calls, first);
 });
 
 test('refresh endpoint is absent when no secret has been configured', async t => {
@@ -165,17 +174,17 @@ test('refresh endpoint is absent when no secret has been configured', async t =>
   assert.equal((await read(mf, 'https://rss.example/refresh', { method: 'POST' })).status, 404);
 });
 
-test('every read route rejects anonymous, invalid and duplicate credentials before DO lookup', async () => {
+test('private read routes reject anonymous, invalid and duplicate credentials before DO lookup', async () => {
   const env = { ACCESS_KEY, FEED_STORE: { idFromName() { throw new Error('Unauthorized request touched storage'); } } };
-  for (const path of ['/', '/feed.xml', '/feed.opml', '/status.json', '/sources.json']) {
-    for (const suffix of ['', '?key=wrong', `?key=${ACCESS_KEY}&key=${ACCESS_KEY}`]) {
+  for (const path of ['/', '/feed.xml', '/papers.html', '/feed.opml', '/status.json', '/sources.json']) {
+    for (const suffix of [ ...(path === '/' ? [] : ['']), '?key=wrong', `?key=${ACCESS_KEY}&key=${ACCESS_KEY}`]) {
       const response = await workerHandler.fetch(new Request(`https://private.example${path}${suffix}`), env);
       assert.equal(response.status, 401, path + suffix);
       assert.equal(response.headers.get('Cache-Control'), 'private, no-store');
       assert.equal(response.headers.get('Referrer-Policy'), 'no-referrer');
       assert.doesNotMatch(await response.text(), new RegExp(ACCESS_KEY));
     }
-    const head = await workerHandler.fetch(new Request(`https://private.example${path}`, { method: 'HEAD', headers: { 'If-None-Match': '*' } }), env);
+    const head = await workerHandler.fetch(new Request(`https://private.example${path}`, { method: 'HEAD', headers: { 'If-None-Match': '*', Authorization: 'Bearer wrong' } }), env);
     assert.equal(head.status, 401, 'HEAD/conditional requests cannot bypass auth');
   }
   const ambiguous = await workerHandler.fetch(new Request(`https://private.example/feed.xml?key=${ACCESS_KEY}`, {
@@ -220,12 +229,97 @@ test('Zotero query key works; private OPML preserves it, RSS and source requests
   const home = await mf.dispatchFetch(`https://private.example/?key=${ACCESS_KEY}`);
   assert.match(await home.text(), new RegExp(`feed.xml\\?key=${ACCESS_KEY}`));
   assert.equal(home.headers.get('Referrer-Policy'), 'no-referrer');
-  for (const path of ['/feed.xml', '/feed.opml', '/status.json', '/sources.json', '/']) {
+  for (const path of ['/feed.xml', '/papers.html', '/feed.opml', '/status.json', '/sources.json']) {
     assert.equal((await mf.dispatchFetch(`https://private.example${path}`)).status, 401);
   }
   assert.equal((await mf.dispatchFetch('https://private.example/refresh', { method: 'POST', headers: { Authorization: `Bearer ${ACCESS_KEY}` } })).status, 401);
   assert.equal(calls, firstCalls, 'reading or attacking endpoints cannot trigger extra crawls');
   assert.equal((await mf.dispatchFetch('https://private.example/feed.xml', { headers: { Authorization: 'Bearer test-long-secret' } })).status, 401, 'admin token does not grant read access');
+});
+
+test('Visit shows a public overview; the private reading file initializes once and uses saved results', async t => {
+  let calls = 0;
+  const mf = worker(request => { calls++; return fixture(new URL(request.url)); });
+  t.after(() => mf.dispose());
+  const before = await mf.dispatchFetch('https://rss.example/');
+  assert.equal(before.status, 200);
+  assert.equal(before.headers.get('Content-Type'), 'text/html; charset=utf-8');
+  assert.equal(before.headers.get('Cache-Control'), 'private, no-store');
+  assert.equal(before.headers.get('Referrer-Policy'), 'no-referrer');
+  assert.match(before.headers.get('Content-Security-Policy'), /form-action 'self'/);
+  const initial = await before.text();
+  assert.match(initial, /尚未开始抓取/);
+  assert.match(initial, /Marc Melitz/);
+  assert.match(initial, /name="key" type="password"/);
+  assert.doesNotMatch(initial, new RegExp(ACCESS_KEY));
+  assert.equal(calls, 0, 'viewing an empty dashboard does not initialize a crawl');
+  const head = await mf.dispatchFetch('https://rss.example/', { method: 'HEAD' });
+  assert.equal(head.status, 200); assert.equal(await head.text(), '');
+  const post = await mf.dispatchFetch('https://rss.example/', { method: 'POST' });
+  assert.equal(post.status, 405); assert.equal(post.headers.get('Allow'), 'GET, HEAD');
+  assert.equal((await mf.dispatchFetch('https://rss.example/overview')).status, 404, 'internal overview route is not exposed');
+  assert.equal(calls, 0);
+
+  const reading = await mf.dispatchFetch(`https://rss.example/papers.html?key=${ACCESS_KEY}`);
+  assert.equal(reading.status, 200);
+  assert.equal(reading.headers.get('Content-Type'), 'text/html; charset=utf-8');
+  assert.equal(reading.headers.get('Content-Disposition'), 'inline; filename="scholar-papers.html"');
+  assert.equal(reading.headers.get('Cache-Control'), 'private, no-store');
+  const readingHTML = await reading.text();
+  assert.equal((readingHTML.match(/<article class="paper">/g) ?? []).length, 9);
+  assert.match(readingHTML, /Research on Trade and Globalization/);
+  assert.match(readingHTML, /全文|原文/);
+  assert.match(readingHTML, /OpenAlex \(DOI matched\)/);
+  assert.match(readingHTML, new RegExp(`feed.xml\\?key=${ACCESS_KEY}`));
+  const firstCalls = calls;
+  assert.ok(firstCalls > 0);
+  const readingHead = await read(mf, 'https://rss.example/papers.html', { method: 'HEAD' });
+  assert.equal(readingHead.status, 200); assert.equal(await readingHead.text(), '');
+  assert.equal((await read(mf, 'https://rss.example/papers.html', { method: 'POST' })).status, 405);
+  assert.equal((await read(mf, 'https://rss.example/feed.xml')).status, 200);
+  const report = await (await read(mf, 'https://rss.example/status.json')).json();
+  const after = await (await mf.dispatchFetch('https://rss.example/')).text();
+  assert.match(after, new RegExp(`窗口内 ${report.itemCount} 条`));
+  assert.doesNotMatch(after, /最近成功：尚无记录/);
+  assert.match(after, /北京时间/);
+  assert.match(after, /成功，1 条/);
+  assert.match(after, /抓取失败/);
+  assert.match(after, /摘要命中/);
+  assert.doesNotMatch(after, /尚未开始抓取|HTTP 503/);
+  assert.doesNotMatch(after, new RegExp(ACCESS_KEY));
+  assert.equal(calls, firstCalls, 'viewing the dashboard only reads the saved snapshot');
+  assert.equal((await mf.dispatchFetch(`https://rss.example/?key=${ACCESS_KEY}`, { headers: { Authorization: 'Bearer wrong' } })).status, 401);
+});
+
+test('public configuration page stays readable with missing or invalid keys and never touches storage', async () => {
+  for (const key of [undefined, '', 'short', 'replace-with-a-random-64-character-hex-key', 'secret with spaces 012345678901234567890123456789']) {
+    const env = { ACCESS_KEY: key, FEED_STORE: { idFromName() { throw new Error('Unconfigured overview touched storage'); } } };
+    const response = await workerHandler.fetch(new Request('https://rss.example/'), env);
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /抓取已暂停/);
+    assert.match(body, key ? /ACCESS_KEY 格式不合规/ : /ACCESS_KEY 尚未配置/);
+    assert.match(body, /点击“部署”/);
+    if (key) assert.ok(!body.includes(key), 'configuration page must not echo the secret');
+    const head = await workerHandler.fetch(new Request('https://rss.example/', { method: 'HEAD' }), env);
+    assert.equal(head.status, 200); assert.equal(await head.text(), '');
+  }
+});
+
+test('public overview excludes raw errors, provider credentials and private subscription links', () => {
+  const secretError = `upstream failed with private credential ${ACCESS_KEY}`;
+  const report = { health: 'degraded', window: { from: '2026-08-27', to: '2026-10-27' },
+    itemCount: 1, storedItemCount: 2, lastAttempt: '2026-10-27T00:00:00Z', lastSuccess: '2026-10-27T00:00:00Z',
+    pages: [{ id: 'marc-melitz/publications', error: secretError }],
+    providers: [{ id: 'crossref', matched: 1, missingAbstract: 2, error: secretError },
+      { id: 'nber', matched: 0, missingAbstract: 0, abstractFeedError: secretError }] };
+  const store = { report: () => report, env: { ACCESS_KEY } };
+  const body = FeedStore.prototype.home.call(store, 'https://rss.example', true);
+  assert.match(body, /抓取失败/); assert.match(body, /部分抓取失败/);
+  assert.doesNotMatch(body, new RegExp(ACCESS_KEY));
+  assert.doesNotMatch(body, /upstream failed|feed.xml\?key=|papers.html\?key=|feed.opml\?key=|status.json\?key=/);
+  const privateBody = FeedStore.prototype.home.call(store, 'https://rss.example');
+  assert.match(privateBody, new RegExp(`feed.xml\\?key=${ACCESS_KEY}`));
 });
 
 test('reusing the reader key as admin secret disables manual refresh', async t => {
@@ -234,4 +328,5 @@ test('reusing the reader key as admin secret disables manual refresh', async t =
   const response = await mf.dispatchFetch('https://private.example/refresh', { method: 'POST', headers: { Authorization: `Bearer ${ACCESS_KEY}` } });
   assert.equal(response.status, 404);
 });
+
 

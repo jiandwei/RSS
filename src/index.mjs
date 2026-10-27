@@ -4,6 +4,7 @@ import { collectLiterature, dateResearcherPapers, metadataClient } from './disco
 import { digest, escapeXML, mergeItems, feedItems, renderOPML, renderRSS, validateSources } from './feed.mjs';
 import { fetchPage } from './extract.mjs';
 import { authorizeRead, hasAccessKey, matchesSecret, privateResponse, privateURL } from './auth.mjs';
+import { renderReadingPage } from './reading.mjs';
 
 validateSources(config);
 const sources = config.researchers;
@@ -13,6 +14,13 @@ const pages = sources.flatMap(source => source.pages.map(page => ({ source, page
 const titleOf = env => env.FEED_TITLE || 'Economists & Supply Chain — Recent Research';
 const boundedInt = (value, fallback, max) => Math.max(1, Math.min(max, Number.parseInt(value, 10) || fallback));
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
+const htmlPage = body => `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width">` +
+  `<title>研究者与供应链 RSS · 抓取状态</title><style>body{font:16px/1.7 system-ui;max-width:850px;margin:48px auto;padding:0 24px;color:#172b4d}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}td,th{padding:10px;border-bottom:1px solid #ddd;text-align:left}a{color:#165cbe}input,button{font:inherit;padding:8px;max-width:100%;box-sizing:border-box}form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}</style>` + body + '</html>';
+const homeResponse = (request, body, status = 200) => new Response(request.method === 'HEAD' ? null : body, {
+  status,
+  headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" }
+});
 
 export default {
   async fetch(request, env) {
@@ -34,9 +42,27 @@ export default {
 
 async function handleRequest(request, env) {
     const url = new URL(request.url);
-    const allowed = ['/', '/feed.xml', '/feed.opml', '/sources.json', '/status.json', '/refresh'];
+    const allowed = ['/', '/feed.xml', '/papers.html', '/feed.opml', '/sources.json', '/status.json', '/refresh'];
     if (!allowed.includes(url.pathname)) return new Response('Not found', { status: 404 });
-    // Authenticate before any Durable Object lookup, database access or crawling.
+    // Cloudflare's Visit button opens a read-only overview without credentials.
+    // Explicitly supplied credentials still go through normal authentication.
+    if (url.pathname === '/' && !url.searchParams.has('key') && !request.headers.has('Authorization')) {
+      if (!['GET', 'HEAD'].includes(request.method)) {
+        return new Response('Use GET or HEAD', { status: 405, headers: { Allow: 'GET, HEAD' } });
+      }
+      if (!hasAccessKey(env)) {
+        const configured = env.ACCESS_KEY !== undefined && env.ACCESS_KEY !== null && env.ACCESS_KEY !== '';
+        return homeResponse(request, htmlPage(`<h1>研究者与供应链 · 抓取状态</h1>` +
+          `<p role="status">抓取已暂停：ACCESS_KEY ${configured ? '格式不合规' : '尚未配置'}。</p>` +
+          `<p>在此 Worker 的设置 → 变量和密钥中，${configured ? '编辑' : '添加'}名为 <code>ACCESS_KEY</code> 的密钥，并点击“部署”。</p>` +
+          `<p>使用随机的 32–128 位英文字母、数字、短横线或下划线，不带空格、引号或换行，也不要使用示例值。本地运行 <code>openssl rand -hex 32</code> 可生成密钥。</p>` +
+          `<p>配置生效后，直接打开此首页即可查看抓取概况；RSS 订阅和详细状态需要访问密钥。</p>`));
+      }
+      const stub = env.FEED_STORE.get(env.FEED_STORE.idFromName('all-scholars-v1'));
+      // This internal route renders only status summaries and never crawls.
+      return stub.fetch('https://feed.internal/overview', { method: request.method });
+    }
+    // Private routes authenticate before any storage access or crawling.
     if (!hasAccessKey(env)) {
       const configured = env.ACCESS_KEY !== undefined && env.ACCESS_KEY !== null && env.ACCESS_KEY !== '';
       const message = configured
@@ -188,11 +214,10 @@ export class FeedStore {
     const url = new URL(request.url);
     if (url.pathname === '/refresh' && request.method === 'POST') return json(await this.refresh());
     if (url.pathname === '/status.json') return json(this.report());
-    if (url.pathname === '/') return new Response(request.method === 'HEAD' ? null : this.home(url.origin), {
-      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
-        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'" }
-    });
-    if (url.pathname !== '/feed.xml') return new Response('Not found', { status: 404 });
+    if (url.pathname === '/' || url.pathname === '/overview') {
+      return homeResponse(request, this.home(url.origin, url.pathname === '/overview'));
+    }
+    if (!['/feed.xml', '/papers.html'].includes(url.pathname)) return new Response('Not found', { status: 404 });
     // A first subscription bootstraps the store, with retry backoff if every source fails.
     let items = this.getItems();
     const last = this.getMeta('lastAttempt');
@@ -205,7 +230,18 @@ export class FeedStore {
       await this.refresh(); items = this.getItems();
     }
     const visible = feedItems(items, currentWindow());
-    if (!visible.length && this.getMeta('scanSucceeded') !== '1') return new Response('No research metadata available yet. Check /status.json and retry later.', {
+    const unavailable = !visible.length && this.getMeta('scanSucceeded') !== '1';
+    if (url.pathname === '/papers.html') {
+      const response = homeResponse(request, renderReadingPage(visible, {
+        window: currentWindow(), origin: url.origin, title: titleOf(this.env), accessKey: this.env.ACCESS_KEY,
+        updatedAt: this.getMeta('contentUpdatedAt'), health: this.report().health, unavailable,
+        limit: boundedInt(this.env.MAX_FEED_ITEMS, 1000, 1000)
+      }), unavailable ? 503 : 200);
+      response.headers.set('Content-Disposition', 'inline; filename="scholar-papers.html"');
+      if (unavailable) response.headers.set('Retry-After', '900');
+      return response;
+    }
+    if (unavailable) return new Response('No research metadata available yet. Check /status.json and retry later.', {
       status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '900', 'Cache-Control': 'no-store' }
     });
     const body = renderRSS(visible, { window: currentWindow(), origin: url.origin, title: titleOf(this.env),
@@ -219,22 +255,31 @@ export class FeedStore {
     if (validators.includes(etag) || validators.includes('*')) return new Response(null, { status: 304, headers });
     return new Response(request.method === 'HEAD' ? null : body, { headers });
   }
-  home(origin) {
+  home(origin, publicView = false) {
     const report = this.report(); const esc = escapeXML;
     const link = path => esc(privateURL(origin, path, this.env.ACCESS_KEY));
-    return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width">` +
-      `<title>研究者与供应链 RSS</title><style>body{font:16px/1.7 system-ui;max-width:850px;margin:48px auto;padding:0 24px;color:#172b4d}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}td,th{padding:10px;border-bottom:1px solid #ddd;text-align:left}a{color:#165cbe}</style>` +
-      `<h1>研究者与供应链，一个 RSS</h1><p>在 Zotero 的“新建订阅源 → 从 URL”中添加：</p>` +
+    const time = value => value ? esc(new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })) : '尚无记录';
+    const health = { 'not-initialized': '尚未初始化', degraded: '部分来源失败或元数据不完整', healthy: '正常' }[report.health];
+    const subscription = publicView ?
+      `<h2>私有订阅</h2><form method="get" action="/"><label for="key">访问密钥</label><input id="key" name="key" type="password" required minlength="32" maxlength="128" pattern="[A-Za-z0-9_\\-]{32,128}" autocomplete="off"><button type="submit">查看论文与私有订阅</button></form>` :
+      `<h2>私有订阅</h2><p>在 Zotero 的“新建订阅源 → 从 URL”中添加：</p>` +
       `<p><a href="${link('/feed.xml')}"><code>${link('/feed.xml')}</code></a></p>` +
-      `<p><a href="${link('/feed.opml')}">下载私有 OPML（包含访问密钥）</a> · <a href="${link('/status.json')}">抓取状态</a> · <a href="${link('/sources.json')}">链接配置</a></p>` +
-      `<p>完整订阅地址和 OPML 相当于访问凭证，请勿分享。</p>` +
-      `<p>每 6 小时更新。只显示 ${esc(report.window.from)} 至 ${esc(report.window.to)}（北京时间，滚动两个月）有可核验发表日期的论文。</p><p>六位学者的论文继续追踪；UTD24、FT50、NBER、CEPR 新增论文必须在摘要中出现 supply chain、supply-chain 或供应链。缺少摘要或日期的新增论文不会推送。</p>` +
-      `<p>窗口内 ${report.itemCount} 条；状态：${esc(report.health)}；最近尝试：${esc(report.lastAttempt ?? '尚未初始化')}。</p>` +
-      `<table><tr><th>研究者</th><th>页面状态</th></tr>` + sources.map(source => {
+      `<p><a href="${link('/papers.html')}">阅读论文结果</a> · <a href="${link('/feed.opml')}">下载私有 OPML（包含访问密钥）</a> · <a href="${link('/status.json')}">详细抓取状态</a> · <a href="${link('/sources.json')}">链接配置</a></p>` +
+      `<p>完整订阅地址和 OPML 相当于访问凭证，请勿分享。</p>`;
+    return htmlPage(`<h1>研究者与供应链 · 抓取状态</h1>` +
+      `<p role="status">状态：${esc(health)}；窗口内 ${report.itemCount} 条，已保存 ${report.storedItemCount} 条。</p>` +
+      `<p>最近尝试：${time(report.lastAttempt)}；最近成功：${time(report.lastSuccess)}（北京时间）。</p>` +
+      `<p>每天北京时间 02:00、08:00、14:00、20:00 自动更新。本页仅查看已保存的抓取结果。</p>` +
+      (report.health === 'not-initialized' ? `<p>尚未开始抓取。等待下一次自动更新，或使用访问密钥打开私有 RSS，启动首次抓取。</p>` : '') +
+      `<p>只显示 ${esc(report.window.from)} 至 ${esc(report.window.to)}（北京时间，滚动两个月）有可核验发表日期的论文。</p><p>六位学者的论文继续追踪；UTD24、FT50、NBER、CEPR 新增论文必须在摘要中出现 supply chain、supply-chain 或供应链。缺少摘要或日期的新增论文不会推送。</p>` +
+      `<h2>学者主页</h2><table><tr><th>研究者</th><th>页面状态</th></tr>` + sources.map(source => {
         const relevant = report.pages.filter(page => page.id.startsWith(`${source.id}/`));
         return `<tr><td><a href="${esc(source.homepage)}">${esc(source.name)}</a></td><td>` +
-          relevant.map(page => `${esc(page.id.split('/')[1])}: ${esc(page.error ?? (page.checkedAt ? `${page.lastGoodCount} 条` : '未检查'))}`).join('<br>') + '</td></tr>';
-      }).join('') + `</table><p>新增文献来源：${report.providers.map(provider => `${esc(provider.id)}：摘要命中 ${provider.matched}，缺摘要 ${provider.missingAbstract}，${esc(provider.error ?? (provider.complete ? '扫描完成' : '未完成'))}`).join('；')}。</p><p>公开索引可能延迟或缺少摘要，不能保证穷尽。详见抓取状态；旧条目超过窗口会自动退出订阅。</p></html>`;
+          relevant.map(page => `${esc(page.id.split('/')[1])}: ${esc(page.error ? (publicView ? '抓取失败' : page.error) : (page.checkedAt ? `成功，${page.lastGoodCount} 条` : '未检查'))}`).join('<br>') + '</td></tr>';
+      }).join('') + `</table><h2>新增文献来源</h2>` +
+      (report.providers.length ? `<ul>${report.providers.map(provider => `<li>${esc(provider.id)}：摘要命中 ${provider.matched}，缺摘要 ${provider.missingAbstract}，${esc(provider.error || provider.abstractFeedError ? (publicView ? '部分抓取失败' : (provider.error || provider.abstractFeedError)) : (provider.complete ? '扫描完成' : '扫描未完成'))}</li>`).join('')}</ul>` : '<p>尚未检查。</p>') +
+      `<p>公开索引可能延迟或缺少摘要，不能保证穷尽；旧条目超过窗口会自动退出订阅。详细错误与覆盖缺口可在私有状态中查看。</p>` + subscription);
   }
 }
+
 
