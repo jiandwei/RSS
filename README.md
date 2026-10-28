@@ -4,7 +4,7 @@
 
 把学者主页、期刊名单和检索接口集中维护在 **`sources.json`** 中，由 **Cloudflare Workers** 抓取、合并、去重，最终只提供 **一个 `/feed.xml`**。
 
-追踪 Marc Melitz、David Autor、David Dorn、Nicholas Bloom、John Van Reenen、Peter Klenow，并加入 **UTD24、FT50、NBER、CEPR 中摘要提到供应链的论文**。所有条目都只保留滚动最近两个月，仍然只有一个订阅地址。无需 RSSHub、AI API 或浏览器服务器。
+追踪 Marc Melitz、David Autor、David Dorn、Nicholas Bloom、John Van Reenen、Peter Klenow，并加入 **UTD24、FT50、NBER、CEPR 中摘要命中供应链关键词或常见供应链数据库名称的论文**。RSS 只保留滚动最近两个月；浏览器收藏保留收藏时的论文快照，可一键导出 Markdown。仍然只有一个订阅地址，无需 RSSHub、AI API 或浏览器服务器。
 
 **点击 Cloudflare 的“访问”即可打开首页，直接查看抓取概况；论文阅读页、RSS、OPML、详细状态和配置接口仍需要 `ACCESS_KEY`。** 首页只读取已有结果，不触发抓取，也不展示密钥、私有订阅地址或原始错误。没有设置密钥或密钥格式不合规时，首页显示配置指引，服务不会访问存储或抓取来源；私有接口的未授权请求也不会访问存储或触发抓取。
 
@@ -27,16 +27,35 @@
 | 范围 | 推送条件 | 元数据来源 |
 |---|---|---|
 | 六位学者主页 | 有可核验的近两个月发表日期，主题不限 | 原主页链接 + Crossref 题名和作者核验 |
-| UTD24、FT50 | 属于配置中的期刊，近两个月发表，**摘要**命中供应链 | Crossref；OpenAlex 按 DOI 补摘要，为无近期 Crossref 记录的期刊补检 |
-| NBER 工作论文 | 近两个月发表，摘要命中供应链 | Crossref 的 `10.3386` 前缀记录 + NBER 官方 RSS / OpenAlex 摘要 |
-| CEPR Discussion Papers | 近两个月发表，摘要命中供应链 | CEPR 官方 Discussion Papers RSS，按页回溯 |
+| UTD24、FT50 | 属于配置中的期刊，近两个月发表，**摘要**命中供应链关键词或数据库名称规则 | Crossref；OpenAlex 按 DOI 补摘要，为无近期 Crossref 记录的期刊补检 |
+| NBER 工作论文 | 近两个月发表，摘要命中供应链关键词或数据库名称规则 | Crossref 的 `10.3386` 前缀记录 + NBER 官方 RSS / OpenAlex 摘要 |
+| CEPR Discussion Papers | 近两个月发表，摘要命中供应链关键词或数据库名称规则 | CEPR 官方 Discussion Papers RSS，按页回溯 |
 
 - “近两个月”按 **北京时间减去两个自然月，包含起止日**，不是固定 60 天。例如 2026-10-26 的窗口为 **2026-08-26 至 2026-10-26**。每次读取 RSS 都重新筛选，过期论文即使没有触发新抓取也会退出输出。
-- 新增文献必须在摘要中命中 `supply chain`、`supply chains`、`supply-chain`、Unicode 连字符变体或 `供应链`，不区分英文大小写。**只有标题或关键词命中不算；缺摘要不推送。** 六位学者的原有追踪不要求供应链主题。
+- 新增文献必须在摘要中命中 `supply chain`、`supply chains`、`supply-chain`、Unicode 连字符变体、`供应链`，或下列数据库名称规则，不区分英文大小写。**仅标题/元数据关键词命中不算；缺摘要不推送。** 六位学者的原有追踪不要求供应链主题。
 - 日期使用论文元数据中的发表日期或官方 RSS `pubDate`；不使用抓取、索引、创建或存入数据库的时间。Crossref 同时有在线和印刷日期时取较早者，不因近期印刷而重推很早已上线的同一 DOI。
 - 元数据只有年月时以月为精度，RSS 使用该月 1 日并在说明中标注；如果该月 1 日早于窗口起点，则保守排除。仅有年份或完全没有日期时排除。未来日期排除。
 - UTD24 与 FT50 的并集是 **51 本期刊**，按 ISSN 校验，不将一般期刊关键词搜索冒充名单检索。FT50 使用[官方 2026-04-29 版本](https://www.ft.com/content/db863a0a-6524-45f9-bc52-fee997634bdc)，UTD 名单见[官方入口](https://jsom.utdallas.edu/the-utd-top-100-business-school-research-rankings/list-of-journals)。两组重叠期刊只检索一次，论文可同时带有两个分类。
 - 按规范化题名和 DOI 合并重复发现，保留稳定 GUID；输出真实元数据作者、发表日期、摘要、期刊和来源分类。一个条目可能同时带有学者、UTD24、FT50、NBER、CEPR 标签。
+
+### 供应链数据库名称
+
+`research-databases.json` 维护规范名称、别名及参考来源。默认识别以下八类：
+
+| 规范名称 | 代表性名称或别名 |
+|---|---|
+| FactSet Revere | FactSet Revere、FactSet's Revere、FactSet Supply Chain、Revere Supply Chain |
+| Bloomberg SPLC | Bloomberg SPLC、Bloomberg Supply Chain |
+| Compustat Customer Segments | Compustat Customer Segment(s)、Compustat Segment Customer |
+| S&P Capital IQ Business Relationships | Capital IQ Business Relationships、CapitalIQ Business Relationships |
+| Mergent Supply Chain / Horizon | Mergent Supply Chain、Mergent Horizon |
+| Panjiva | Panjiva |
+| ImportGenius | ImportGenius、Import Genius |
+| CSMAR / 国泰安供应链研究 | CSMAR Supply Chain、CSMAR供应链、国泰安供应链 |
+
+`FactSet`、`Revere`、`Bloomberg`、`SPLC`、`Compustat`、`Capital IQ`、`Mergent`、`CSMAR`、`国泰安` 等宽泛名称，需在前后 180 个字符内同时出现客户—供应商、买方—供应商、主要客户、客户分部或供应链等语境，才作为匹配线索。不会仅因普通股票收益研究使用 Bloomberg 或 Compustat 就收录。
+
+数据库标签表示**公开摘要提及该名称**，不代表已核验论文实际使用该数据库或具体数据表。这里没有连接、登录或下载任何付费数据库，不需要新增供应商 API Key。部署后，新增规则会在下一次抓取时应用；已有论文的数据库标签也会在读取时重新识别。日期窗口、期刊名单、缺摘要排除和抓取预算保持原规则。
 
 ## 工作方式与覆盖状态
 
@@ -116,6 +135,16 @@ npx wrangler secret put ACCESS_KEY
 
 在首页输入访问密钥后，点击 **阅读论文结果**，或打开 `https://你的Worker地址/papers.html?key=你的密钥`。阅读页与 RSS 使用相同的日期窗口、排序和条目上限，每篇论文按标题、收录标签、作者、发表日期、期刊、DOI、摘要与发现来源分区显示，并提供原文链接。页面适配手机，支持浏览器保存为 HTML 或打印；首次打开也可启动抓取，之后读取已有结果。
 
+### 收藏、搜索与一键导出 Markdown
+
+1. 在论文卡片上点击 **☆ 收藏**；再次点击 **★ 已收藏** 可取消收藏。
+2. 点击 **我的收藏** 查看保存的论文。搜索支持标题、作者、摘要、DOI、期刊和数据库名称；数据库下拉框与搜索可以组合使用，也适用于收藏视图。
+3. 点击 **导出全部收藏 .md**，浏览器会下载 `research-favorites-YYYY-MM-DD.md`（文件名日期使用北京时间）。文件包含全部收藏的标题、作者、发表日期、期刊、DOI、收录来源、摘要提及的数据库、完整摘要和原文/发现来源链接。当前搜索和筛选不会缩小导出范围。
+
+收藏使用当前站点、当前浏览器的本地存储，保留**收藏时的论文内容快照**；即使论文退出两个月订阅窗口，仍可在收藏中阅读和导出。收藏不会上传到 Worker，不会跨浏览器、跨设备或跨域名自动同步；浏览器清理站点数据或隐私窗口关闭可能清除收藏，建议定期导出。Markdown 导出不包含订阅密钥或私有订阅链接，也不是可导回应用的同步格式。首次收藏时若存储不可用、已满或数据异常，页面会说明本次更改仅临时保留，并继续允许导出；不会自动覆盖无法解析的原始收藏数据。
+
+正文不需要 JavaScript 即可阅读；收藏、搜索、筛选和导出使用站点自己的 `/reader.js`，不加载第三方脚本，也不发送额外抓取请求。保存为 HTML 后仍可阅读正文，收藏功能以在线阅读页的当前站点存储为准。
+
 RSS 的条目内容同步使用带格式的 HTML，方便在支持 HTML 的 Zotero 或 RSS 阅读器中阅读；不支持样式的阅读器仍可显示表格与分段内容。原订阅地址、GUID、发表日期和元数据作者保持不变。阅读页属于私有文件，其中的订阅链接含访问凭证，请勿公开分享。
 
 ### 添加订阅
@@ -139,12 +168,13 @@ RSS 的条目内容同步使用带格式的 HTML，方便在支持 HTML 的 Zote
 | `/` | 无需密钥查看抓取概况；输入密钥后查看私有订阅地址和详细状态入口 |
 | `/feed.xml` | 唯一的聚合 RSS 2.0，支持 ETag、304、HEAD |
 | `/papers.html` | 私有论文阅读文件，按论文分区排版，可保存或打印；首次读取可初始化抓取 |
+| `/reader.js` | 不含凭证和论文数据的公共静态脚本，支持 GET/HEAD；不访问存储、不触发抓取 |
 | `/feed.opml` | 只包含上述一个 RSS 的订阅文件 |
 | `/sources.json` | 查看统一链接配置 |
 | `/status.json` | 日期窗口、各来源覆盖、摘要/日期缺口、请求数、失败信息 |
 | `POST /refresh` | 可选的手动刷新，必须设置并携带 Bearer secret |
 
-除不携带凭证的首页外，论文阅读页、配置、详细状态、RSS 和 OPML 都要求 `ACCESS_KEY`。首页公开展示时间窗口、条目数、最近尝试/成功时间、学者页面成功或失败概况及元数据来源扫描概况，不公开原始错误、密钥或私有链接；显式携带错误凭证访问首页仍返回 401。每个响应使用 `private, no-store`，防止公共缓存暴露数据；使用 `Referrer-Policy: no-referrer` 防止点击外链时泄露 URL 密钥。Worker 自动请求日志已禁用，内部转发和上游抓取也会移除读取凭证；但仍应注意浏览器历史、客户端同步和其他平台日志对完整 URL 的保存。
+除不携带凭证的首页和不含数据的 `/reader.js` 外，论文阅读页、配置、详细状态、RSS 和 OPML 都要求 `ACCESS_KEY`。首页公开展示时间窗口、条目数、最近尝试/成功时间、学者页面成功或失败概况及元数据来源扫描概况，不公开原始错误、密钥或私有链接；显式携带错误凭证访问首页仍返回 401。每个响应使用 `private, no-store`，防止公共缓存暴露数据；使用 `Referrer-Policy: no-referrer` 防止点击外链或加载脚本时泄露 URL 密钥。只有私有阅读页允许加载同源脚本，仍禁止内联脚本和事件处理器；浏览器收藏和导出的数据只选取论文元数据，不包含访问密钥。Worker 自动请求日志已禁用，内部转发和上游抓取也会移除读取凭证；但仍应注意浏览器历史、客户端同步和其他平台日志对完整 URL 的保存。
 
 默认不启用手动刷新端点。如需手动刷新，另设一个不同的随机管理密钥：
 
@@ -180,7 +210,7 @@ curl -X POST https://你的Worker地址/refresh \
 
 ## 修改链接和抓取规则
 
-只编辑 `sources.json`。`researchers` 中每位学者有 `id`、`name`、`homepage` 和 `pages`；每个页面有以下字段：
+来源链接编辑 `sources.json`；数据库名称与别名编辑 `research-databases.json`。`researchers` 中每位学者有 `id`、`name`、`homepage` 和 `pages`；每个页面有以下字段：
 
 | 字段 | 含义 |
 |---|---|
@@ -215,9 +245,12 @@ npm run check       # Wrangler 原生打包 + Node 单元测试 + workerd 集成
 cp .dev.vars.example .dev.vars  # 只在本地编辑，填入 ACCESS_KEY
 npm run dev         # 本地 Worker、SQLite Durable Object；访问也需要密钥
 npm run check:sources  # 实际访问来源，报告逐页解析结果；需要网络
+npm run test:browser   # 真实 Chrome/Chromium 的收藏、下载和响应式检查；可用 CHROME_BIN 指定程序路径
 ```
 
 `npm run check` 使用小型手写 HTML fixtures 和仅用于测试的密钥，不依赖学者网站在线状态。测试涵盖两个月边界与月末、真实发表日期、仅摘要命中、期刊白名单、Crossref/CEPR 分页、NBER 缺日期时的元数据连接、OpenAlex 精确 DOI 补全、跨来源去重、过期/旧版条目排除、GUID 稳定性、XML 转义、私有单源 OPML、并发初始化、私有路由鉴权、私有接口未授权请求零存储调用、公开首页不触发抓取或泄露凭证/原始错误、配置指引、密钥缺失时关闭 Cron、管理/读取密钥隔离、条件请求、失败保留历史、空解析报警。集成测试运行真正的 `HTMLRewriter` 和 SQLite Durable Objects。
+
+新测试还覆盖数据库别名与误匹配排除、收藏快照跨窗口保留、Markdown 导出完整性、存储禁用/配额/损坏、跨标签页更新和不可信内容转义。CI 额外使用 runner 预装的 Chrome 执行 `test:browser`，验证真实 CSP、刷新后收藏恢复、文件下载、无额外服务端请求、320–1280 像素布局和打印控件隐藏，并保留 7 天示例页面截图。`wrangler.jsonc` 中的 `keep_names: false` 用于避免给客户端脚本引入打包器外部辅助函数；集成测试会执行实际打包后的 `/reader.js` 响应。
 
 若当前 Node 网络环境不能直接访问学术网站，可把从对应公开 URL 下载的 HTML 放入本地目录，文件名为 `<研究者id>--<页面id>.html`，运行：
 

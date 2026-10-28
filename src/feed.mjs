@@ -1,6 +1,6 @@
 import { decodeHTML } from 'entities';
 import { inWindow } from './window.mjs';
-import { supplyChainAbstract } from './topic.mjs';
+import { matchResearchTopic, supplyChainAbstract } from './topic.mjs';
 
 export function cleanText(value = '') {
   return decodeHTML(value)
@@ -140,7 +140,8 @@ export function feedItems(items, window) {
     records.sort((a, b) => b.date.value.localeCompare(a.date.value) || Number(Boolean(b.abstract)) - Number(Boolean(a.abstract)));
     if (!records.length) return [];
     const primary = records[0];
-    return [{ ...item, ...primary, records, categories: [...new Set(records.flatMap(r =>
+    const databases = [...new Map(records.flatMap(record => matchResearchTopic(record.abstract).databases).map(database => [database.id, database])).values()];
+    return [{ ...item, ...primary, records, databases, categories: [...new Set(records.flatMap(r =>
       [...r.groups, ...(r.researcher ? [r.researcher] : [])]))] }];
   }).sort((a, b) => b.date.value.localeCompare(a.date.value) || a.title.localeCompare(b.title));
 }
@@ -156,7 +157,8 @@ export function renderPaperDetails(item) {
     ['作者', item.authors?.length ? esc(item.authors.join(' · ')) : '作者信息暂缺'],
     ['发表日期', esc(date)],
     ...(item.journal ? [['期刊', esc(item.journal)]] : []),
-    ...(item.doi ? [['DOI', link(`https://doi.org/${String(item.doi).split('/').map(encodeURIComponent).join('/')}`, item.doi)]] : [])
+    ...(item.doi ? [['DOI', link(`https://doi.org/${String(item.doi).split('/').map(encodeURIComponent).join('/')}`, item.doi)]] : []),
+    ...(item.databases?.length ? [['摘要提及', esc(item.databases.map(database => database.name).join(' · '))]] : [])
   ];
   const sources = new Map();
   for (const record of item.records ?? []) {
@@ -190,7 +192,7 @@ export function renderRSS(items, { title, origin, updatedAt, window, limit = 200
       `<pubDate>${new Date(item.date.value + 'T00:00:00Z').toUTCString()}</pubDate>` +
       `<description><![CDATA[${description}]]></description>` +
       item.authors.map(name => `<dc:creator>${esc(name)}</dc:creator>`).join('') +
-      item.categories.map(name => `<category>${esc(name)}</category>`).join('') + '</item>';
+      [...new Set([...item.categories, ...(item.databases ?? []).map(database => database.name)])].map(name => `<category>${esc(name)}</category>`).join('') + '</item>';
   }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>` +

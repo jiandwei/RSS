@@ -118,6 +118,29 @@ test('metadata client caches missing abstracts, matches exact DOIs and keeps API
   await assert.rejects(() => exhausted.request('https://api.crossref.org/works'), /budget/);
 });
 
+test('database-name admission still enforces the journal whitelist, abstract requirement and publication window', async () => {
+  const works = [
+    cr('database', { abstract: 'We use FactSet Revere to study firm linkages.' }),
+    cr('finance', { abstract: 'FactSet analyst forecasts explain earnings.' }),
+    cr('title-database', { title: ['Using FactSet Revere'], abstract: 'Employment evidence.' }),
+    cr('missing-abstract', { abstract: undefined }),
+    cr('missing-date', { abstract: 'Panjiva customs records.', 'published-online': undefined }),
+    cr('old-database', { abstract: 'Panjiva customs records.', 'published-online': { 'date-parts': [[2024, 1, 1]] } }),
+    cr('outside-database', { abstract: 'Panjiva customs records.', ISSN: ['9999-9999'] })
+  ];
+  const client = { errors: [], async abstracts() {}, async request(url, format) {
+    url = new URL(url);
+    if (format === 'xml') return '<rss><channel></channel></rss>';
+    if (url.hostname === 'api.openalex.org') return { results: [], meta: { count: 0 } };
+    const items = url.pathname.includes('/prefixes/') ? [] : works;
+    return { message: { items, 'total-results': items.length } };
+  } };
+  const result = await collectLiterature(d, client, window);
+  assert.deepEqual(result.incoming.map(record => record.doi), ['10.5555/database']);
+  assert.equal(result.statuses[0].missingAbstract, 1);
+  assert.equal(result.statuses[0].missingDate, 1);
+});
+
 test('metadata redirects stay within HTTPS site aliases, consume budget and never leak API keys', async () => {
   const calls = [];
   const client = metadataClient(d, { OPENALEX_API_KEY: 'private-key' }, cache(), Date.now(), async (url, init) => {

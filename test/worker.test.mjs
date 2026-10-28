@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Miniflare } from 'miniflare';
 import workerHandler, { FeedStore } from '../dist/index.js';
+import { JSDOM } from 'jsdom';
+import { renderReadingPage } from '../src/reading.mjs';
+import { readerOptions, readerPapers } from './fixtures/reader.mjs';
 
 const ACCESS_KEY = 'test-reader-secret-0123456789abcdef0123456789';
 const recent = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
@@ -266,7 +269,9 @@ test('Visit shows a public overview; the private reading file initializes once a
   assert.equal(reading.headers.get('Content-Disposition'), 'inline; filename="scholar-papers.html"');
   assert.equal(reading.headers.get('Cache-Control'), 'private, no-store');
   const readingHTML = await reading.text();
-  assert.equal((readingHTML.match(/<article class="paper">/g) ?? []).length, 9);
+  assert.equal((readingHTML.match(/<article class="paper" data-paper-id=/g) ?? []).length, 9);
+  assert.match(reading.headers.get('Content-Security-Policy'), /script-src 'self'/);
+  assert.doesNotMatch(before.headers.get('Content-Security-Policy'), /script-src 'self'/, 'only the private reader allows its same-origin script');
   assert.match(readingHTML, /Research on Trade and Globalization/);
   assert.match(readingHTML, /全文|原文/);
   assert.match(readingHTML, /OpenAlex \(DOI matched\)/);
@@ -289,6 +294,25 @@ test('Visit shows a public overview; the private reading file initializes once a
   assert.doesNotMatch(after, new RegExp(ACCESS_KEY));
   assert.equal(calls, firstCalls, 'viewing the dashboard only reads the saved snapshot');
   assert.equal((await mf.dispatchFetch(`https://rss.example/?key=${ACCESS_KEY}`, { headers: { Authorization: 'Bearer wrong' } })).status, 401);
+});
+
+test('the built reader script is credential-free, uses no storage on the Worker, and activates collection controls', async t => {
+  const env = { FEED_STORE: { idFromName() { throw new Error('Static script touched storage'); } } };
+  const response = await workerHandler.fetch(new Request('https://reader.example/reader.js'), env);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Content-Type'), 'application/javascript; charset=utf-8');
+  assert.equal(response.headers.get('Cache-Control'), 'private, no-store');
+  const script = await response.text();
+  assert.ok(!script.includes(ACCESS_KEY));
+  const head = await workerHandler.fetch(new Request('https://reader.example/reader.js', { method: 'HEAD' }), env);
+  assert.equal(head.status, 200); assert.equal(await head.text(), '');
+  assert.equal((await workerHandler.fetch(new Request('https://reader.example/reader.js', { method: 'POST' }), env)).status, 405);
+  const dom = new JSDOM(renderReadingPage(readerPapers, readerOptions), { url: 'https://reader.example/papers.html', runScripts: 'outside-only' });
+  t.after(() => dom.window.close());
+  dom.window.eval(script);
+  assert.equal(dom.window.document.getElementById('reader-tools').hidden, false);
+  dom.window.document.querySelector('[data-favorite-id]').click();
+  assert.equal(dom.window.document.getElementById('favorite-count').textContent, '1');
 });
 
 test('public configuration page stays readable with missing or invalid keys and never touches storage', async () => {

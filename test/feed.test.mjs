@@ -92,6 +92,19 @@ test('OPML imports a single combined feed, not six feeds', () => {
   assert.match(privateXML, /xmlUrl="https:\/\/rss.example\/feed.xml\?key=reader-secret-/);
 });
 
+test('database-only abstract matches survive feed selection and appear as RSS categories and metadata', async () => {
+  const { items } = await mergeItems([], [candidate({ kind: 'literature', researcher: null, groups: ['FT50'],
+    abstract: 'We use FactSet Revere to examine production networks.', pageID: 'discovery/journals' })], '2026-10-26T08:00:00Z');
+  const visible = feedItems(items, window);
+  assert.equal(visible.length, 1);
+  assert.deepEqual(visible[0].databases, [{ id: 'factset-revere', name: 'FactSet Revere' }]);
+  const xml = renderRSS(visible, { window, title: 'Research', origin: 'https://rss.example', updatedAt: items[0].firstSeen });
+  assert.match(xml, /<category>FactSet Revere<\/category>/);
+  const parsed = new XMLParser().parse(xml);
+  assert.match(parsed.rss.channel.item.description, /摘要提及/);
+  assert.match(parsed.rss.channel.item.description, /FactSet Revere/);
+});
+
 test('one-click deployment requests the mandatory reader key, not an optional admin secret', async () => {
   const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
   assert.match(readme, /\[!\[Deploy to Cloudflare\].*\]\(https:\/\/deploy\.workers\.cloudflare\.com\/\?url=https:\/\/github\.com\/jiandwei\/RSS\)/);

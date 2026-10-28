@@ -5,6 +5,7 @@ import { digest, escapeXML, mergeItems, feedItems, renderOPML, renderRSS, valida
 import { fetchPage } from './extract.mjs';
 import { authorizeRead, hasAccessKey, matchesSecret, privateResponse, privateURL } from './auth.mjs';
 import { renderReadingPage } from './reading.mjs';
+import { readerScript } from './reader-client.mjs';
 
 validateSources(config);
 const sources = config.researchers;
@@ -16,10 +17,10 @@ const boundedInt = (value, fallback, max) => Math.max(1, Math.min(max, Number.pa
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 const htmlPage = body => `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width">` +
   `<title>研究者与供应链 RSS · 抓取状态</title><style>body{font:16px/1.7 system-ui;max-width:850px;margin:48px auto;padding:0 24px;color:#172b4d}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}td,th{padding:10px;border-bottom:1px solid #ddd;text-align:left}a{color:#165cbe}input,button{font:inherit;padding:8px;max-width:100%;box-sizing:border-box}form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}</style>` + body + '</html>';
-const homeResponse = (request, body, status = 200) => new Response(request.method === 'HEAD' ? null : body, {
+const homeResponse = (request, body, status = 200, interactive = false) => new Response(request.method === 'HEAD' ? null : body, {
   status,
   headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" }
+    'Content-Security-Policy': "default-src 'none'; " + (interactive ? "script-src 'self'; script-src-attr 'none'; " : '') + "style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" }
 });
 
 export default {
@@ -42,6 +43,11 @@ export default {
 
 async function handleRequest(request, env) {
     const url = new URL(request.url);
+    // This asset contains code only. It must not need or carry reader credentials.
+    if (url.pathname === '/reader.js') {
+      if (!['GET', 'HEAD'].includes(request.method)) return new Response('Use GET or HEAD', { status: 405, headers: { Allow: 'GET, HEAD' } });
+      return new Response(request.method === 'HEAD' ? null : readerScript, { headers: { 'Content-Type': 'application/javascript; charset=utf-8' } });
+    }
     const allowed = ['/', '/feed.xml', '/papers.html', '/feed.opml', '/sources.json', '/status.json', '/refresh'];
     if (!allowed.includes(url.pathname)) return new Response('Not found', { status: 404 });
     // Cloudflare's Visit button opens a read-only overview without credentials.
@@ -236,7 +242,7 @@ export class FeedStore {
         window: currentWindow(), origin: url.origin, title: titleOf(this.env), accessKey: this.env.ACCESS_KEY,
         updatedAt: this.getMeta('contentUpdatedAt'), health: this.report().health, unavailable,
         limit: boundedInt(this.env.MAX_FEED_ITEMS, 1000, 1000)
-      }), unavailable ? 503 : 200);
+      }), unavailable ? 503 : 200, true);
       response.headers.set('Content-Disposition', 'inline; filename="scholar-papers.html"');
       if (unavailable) response.headers.set('Retry-After', '900');
       return response;
@@ -271,7 +277,7 @@ export class FeedStore {
       `<p>最近尝试：${time(report.lastAttempt)}；最近成功：${time(report.lastSuccess)}（北京时间）。</p>` +
       `<p>每天北京时间 02:00、08:00、14:00、20:00 自动更新。本页仅查看已保存的抓取结果。</p>` +
       (report.health === 'not-initialized' ? `<p>尚未开始抓取。等待下一次自动更新，或使用访问密钥打开私有 RSS，启动首次抓取。</p>` : '') +
-      `<p>只显示 ${esc(report.window.from)} 至 ${esc(report.window.to)}（北京时间，滚动两个月）有可核验发表日期的论文。</p><p>六位学者的论文继续追踪；UTD24、FT50、NBER、CEPR 新增论文必须在摘要中出现 supply chain、supply-chain 或供应链。缺少摘要或日期的新增论文不会推送。</p>` +
+      `<p>只显示 ${esc(report.window.from)} 至 ${esc(report.window.to)}（北京时间，滚动两个月）有可核验发表日期的论文。</p><p>六位学者的论文继续追踪；UTD24、FT50、NBER、CEPR 新增论文需在摘要中命中供应链关键词，或 FactSet Revere、Bloomberg SPLC、Panjiva 等数据库名称。宽泛数据库名称还需关系语境；缺少摘要或日期的新增论文不会推送。</p>` +
       `<h2>学者主页</h2><table><tr><th>研究者</th><th>页面状态</th></tr>` + sources.map(source => {
         const relevant = report.pages.filter(page => page.id.startsWith(`${source.id}/`));
         return `<tr><td><a href="${esc(source.homepage)}">${esc(source.name)}</a></td><td>` +

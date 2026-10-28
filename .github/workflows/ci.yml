@@ -18,4 +18,18 @@ jobs:
       - run: npm run check
         env:
           WRANGLER_SEND_METRICS: 'false'
+      - name: Install Chinese fonts for browser checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes fonts-noto-cjk
+      - run: npm run test:browser
+        env:
+          READER_SCREENSHOT_DIR: .scratch/browser-previews
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reader-previews
+          path: .scratch/browser-previews
+          if-no-files-found: ignore
+          retention-days: 7
 
