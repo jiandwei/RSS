@@ -1,0 +1,58 @@
+[
+    {
+        "id": "factset-revere",
+        "name": "FactSet Revere",
+        "aliases": ["FactSet Revere", "FactSet's Revere", "FactSet Supply Chain", "Revere Supply Chain", "Revere Relationship Database"],
+        "contextualAliases": ["FactSet", "Revere"],
+        "reference": "https://www.factset.com/marketplace/catalog/product/factset-supply-chain-relationships"
+    },
+    {
+        "id": "bloomberg-splc",
+        "name": "Bloomberg SPLC",
+        "aliases": ["Bloomberg SPLC", "Bloomberg Supply Chain", "Bloomberg's Supply Chain"],
+        "contextualAliases": ["Bloomberg", "SPLC"],
+        "reference": "https://professional.content.cirrus.bloomberg.com/professional2023/insights/markets/mapping-the-impact-of-tariffs-on-supply-chains/"
+    },
+    {
+        "id": "compustat-customer",
+        "name": "Compustat Customer Segments",
+        "aliases": ["Compustat Customer Segment", "Compustat Customer Segments", "Compustat Segment Customer", "Compustat Segments Customer"],
+        "contextualAliases": ["Compustat", "Compustat Segments", "Compustat Segment"],
+        "reference": "https://wrds-www.wharton.upenn.edu/pages/grid-items/linking-suite-wrds/"
+    },
+    {
+        "id": "capital-iq",
+        "name": "S&P Capital IQ Business Relationships",
+        "aliases": ["Capital IQ Business Relationships", "CapitalIQ Business Relationships", "Capital IQ Supply Chain", "CapitalIQ Supply Chain"],
+        "contextualAliases": ["Capital IQ", "CapitalIQ", "CapIQ"],
+        "reference": "https://www.support.marketplace.spglobal.com/content/dam/spglobal/mi/en/documents/marketplace/api/guides/spglobalapidevelopersguide.pdf"
+    },
+    {
+        "id": "mergent",
+        "name": "Mergent Supply Chain / Horizon",
+        "aliases": ["Mergent Supply Chain", "Mergent Horizon", "Mergent's Horizon"],
+        "contextualAliases": ["Mergent", "Mergent Online", "Mergent Market Atlas"],
+        "reference": "https://onlinelibrary.wiley.com/doi/10.1111/jscm.12294"
+    },
+    {
+        "id": "panjiva",
+        "name": "Panjiva",
+        "aliases": ["Panjiva"],
+        "contextualAliases": [],
+        "reference": "https://www.spglobal.com/market-intelligence/en/solutions/products/panjiva-supply-chain-intelligence"
+    },
+    {
+        "id": "importgenius",
+        "name": "ImportGenius",
+        "aliases": ["ImportGenius", "Import Genius"],
+        "contextualAliases": [],
+        "reference": "https://w3.importgenius.com/faq"
+    },
+    {
+        "id": "csmar",
+        "name": "CSMAR / 国泰安供应链研究",
+        "aliases": ["CSMAR Supply Chain", "CSMAR供应链", "国泰安供应链", "CSMAR供应商客户", "国泰安供应商客户"],
+        "contextualAliases": ["CSMAR", "国泰安"],
+        "reference": "https://www.csmar.com/contents/8/422.html"
+    }
+]
