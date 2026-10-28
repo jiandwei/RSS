@@ -40,7 +40,7 @@ export function readerClient() {
       id: text(value.id, 300), title: text(value.title, 700), url: safeLink(value.url),
       authors: strings(value.authors), journal: text(value.journal), doi: text(value.doi, 300),
       date: { value: value.date.value, precision: value.date.precision === 'month' ? 'month' : 'day', source: text(value.date.source, 300) },
-      abstract: text(value.abstract, 250000), abstractSource: text(value.abstractSource, 300),
+      abstract: typeof value.abstract === 'string' ? value.abstract.trim() : '', abstractSource: text(value.abstractSource, 300),
       categories: strings(value.categories, 40),
       databases: (Array.isArray(value.databases) ? value.databases : []).filter(database => database && /^[a-z0-9-]{1,80}$/.test(database.id) && text(database.name)).slice(0, 40).map(database => ({ id: database.id, name: text(database.name, 150) })),
       sources: (Array.isArray(value.sources) ? value.sources : []).filter(source => source && safeLink(source.url)).slice(0, 40).map(source => ({ url: safeLink(source.url), label: text(source.label, 300) || '文献来源' })),

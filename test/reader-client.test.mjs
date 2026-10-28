@@ -152,3 +152,13 @@ test('a late storage event cannot make an action overwrite another tab’s saved
   const stored = JSON.parse(view.window.localStorage.getItem(KEY));
   assert.deepEqual(new Set(stored.papers.map(item => item.id)), new Set(['paper-a', 'paper-b']));
 });
+
+test('long abstracts are preserved in the saved snapshot and Markdown export without silent truncation', async t => {
+  const abstract = 'Evidence about firm linkages. '.repeat(10000) + 'ENDOFABSTRACT';
+  const view = reader(t, [{ ...readerPapers[0], abstract }]);
+  view.favorite('paper-a').click();
+  const stored = JSON.parse(view.window.localStorage.getItem(KEY));
+  assert.equal(stored.papers[0].abstract.length, abstract.length);
+  view.select('#export-favorites').click();
+  assert.ok((await view.blobs[0].text()).includes(abstract));
+});
